@@ -1,0 +1,2750 @@
+{
+  "schemaVersion": "1.0.0",
+  "description": "Data-driven risk rules consumed by the RiskEngine module. Rules use a small set of explicit, safe condition types. There is NO arbitrary expression evaluation. Each rule that matches produces one or more standard Finding objects. Field names referenced here are the canonical dataset field names documented in docs/FIELD-USAGE.md; if a dataset or field is absent, the rule simply does not fire.",
+  "supportedConditionTypes": [
+    "datasetNotEmpty",
+    "datasetMissingOrEmpty",
+    "datasetRowCountAtLeast",
+    "anyRowFieldEquals",
+    "anyRowFieldNotEquals",
+    "anyRowFieldMatches",
+    "anyRowFieldGreaterThan",
+    "anyRowFieldLessThan"
+  ],
+  "conditionNotes": {
+    "datasetNotEmpty": "Fires when the named dataset exists and has at least one row.",
+    "datasetMissingOrEmpty": "Fires when the named dataset is absent or has zero rows. Use for NotDetected-style findings.",
+    "datasetRowCountAtLeast": "Fires when the dataset row count is >= 'count'.",
+    "anyRowFieldEquals": "Fires when any row's 'field' equals 'value' (string/bool/number, case-insensitive for strings).",
+    "anyRowFieldNotEquals": "Fires when any row's 'field' is present and does not equal 'value'.",
+    "anyRowFieldMatches": "Fires when any row's 'field' matches the regex 'pattern'.",
+    "anyRowFieldGreaterThan": "Numeric comparison; fires when any row's numeric 'field' > 'value'.",
+    "anyRowFieldLessThan": "Numeric comparison; fires when any row's numeric 'field' < 'value'."
+  },
+  "rules": [
+    {
+      "id": "RULE-DC-001",
+      "enabled": true,
+      "category": "Identity / AD / DC",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "Server is a Domain Controller",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "DomainContext",
+        "field": "IsDomainController",
+        "value": true
+      },
+      "whyItMattersForScoping": "Domain Controllers hold Active Directory roles that require careful demotion/migration planning; they cannot be treated as a simple server replacement or decommission.",
+      "potentialProjectImpact": [
+        "Architecture Decision",
+        "Cutover Complexity",
+        "Client Coordination",
+        "Rollback Planning"
+      ],
+      "suggestedValidationQuestion": "Is this Domain Controller being retained, migrated, or demoted, and are there other DCs providing redundancy?",
+      "suggestedScopeLanguage": "> {Brand} assumes Active Directory changes (DC promotion/demotion, FSMO transfer, DNS) will be scheduled during an approved maintenance window with a documented rollback plan.",
+      "likelyAffectedWBSAreas": [
+        "Active Directory Migration",
+        "Cutover Validation",
+        "Client Coordination"
+      ],
+      "sourceModule": "ActiveDirectory",
+      "sourceDataset": "DomainContext",
+      "projectTypeEmphasis": [
+        "Decommission",
+        "ServerRefresh",
+        "AzureMigration"
+      ]
+    },
+    {
+      "id": "RULE-DC-002",
+      "enabled": true,
+      "category": "Identity / AD / DC",
+      "severity": "High",
+      "confidence": "Likely",
+      "title": "Server holds one or more FSMO roles",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "DomainContext",
+        "field": "HoldsFsmoRole",
+        "value": true
+      },
+      "whyItMattersForScoping": "FSMO role ownership must be transferred before this server is retired; missing this step can break domain operations.",
+      "potentialProjectImpact": [
+        "Architecture Decision",
+        "Cutover Complexity",
+        "Rollback Planning"
+      ],
+      "suggestedValidationQuestion": "Which FSMO roles does this server hold, and where will they be transferred?",
+      "sourceModule": "ActiveDirectory",
+      "sourceDataset": "DomainContext",
+      "projectTypeEmphasis": [
+        "Decommission",
+        "ServerRefresh"
+      ]
+    },
+    {
+      "id": "RULE-DC-003",
+      "enabled": true,
+      "category": "Identity / AD / DC",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Domain or forest functional level is legacy",
+      "condition": {
+        "type": "anyRowFieldMatches",
+        "dataset": "DomainContext",
+        "field": "DomainFunctionalLevel",
+        "pattern": "(?i)^Windows(2000|2003(Interim)?|2008(R2)?)$"
+      },
+      "emitPerRow": true,
+      "evidenceField": "DomainFunctionalLevel",
+      "evidenceTemplate": "Domain functional level is {DomainFunctionalLevel} (forest: {ForestFunctionalLevel})",
+      "whyItMattersForScoping": "A legacy functional level often means old DCs were retired without ever raising it, or reflects deliberate compatibility with something still depending on it. Raising it is one-way and requires confirming nothing still needs the old level.",
+      "potentialProjectImpact": [
+        "Architecture Decision",
+        "Rollback Planning"
+      ],
+      "suggestedValidationQuestion": "Why is the domain/forest functional level still {DomainFunctionalLevel}, and is there anything that depends on it staying there?",
+      "sourceModule": "ActiveDirectory",
+      "sourceDataset": "DomainContext",
+      "projectTypeEmphasis": [
+        "Decommission",
+        "ServerRefresh",
+        "AzureMigration"
+      ]
+    },
+    {
+      "id": "RULE-DNS-001",
+      "enabled": true,
+      "category": "Identity / AD / DC",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "Server hosts the DNS Server role",
+      "condition": {
+        "type": "anyRowFieldMatches",
+        "dataset": "RolesFeatures",
+        "field": "Name",
+        "pattern": "(?i)^DNS$"
+      },
+      "whyItMattersForScoping": "DNS is an infrastructure dependency for authentication, application resolution, and clients. Retiring or migrating a DNS server requires client/forwarder cutover planning.",
+      "potentialProjectImpact": [
+        "Architecture Decision",
+        "Cutover Complexity",
+        "Client Coordination"
+      ],
+      "suggestedValidationQuestion": "Do other servers provide DNS, and how are clients/forwarders configured to point at this server?",
+      "sourceModule": "RolesFeatures",
+      "sourceDataset": "RolesFeatures",
+      "projectTypeEmphasis": [
+        "Decommission",
+        "ServerRefresh",
+        "AzureMigration"
+      ]
+    },
+    {
+      "id": "RULE-DNS-002",
+      "enabled": true,
+      "category": "Identity / AD / DC",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "DNS record(s) reference this server directly",
+      "condition": {
+        "type": "datasetNotEmpty",
+        "dataset": "DnsRecordsReferencingThisServer"
+      },
+      "emitPerRow": true,
+      "evidenceField": "RecordName",
+      "evidenceTemplate": "{RecordType} record '{RecordName}' in zone '{ZoneName}' points to {PointsTo}",
+      "whyItMattersForScoping": "A DNS record pointing at this server's own hostname or IP breaks silently if the server is renamed, re-IPed, or retired - whatever resolves that name stops finding it, with no error on this server to point at.",
+      "potentialProjectImpact": [
+        "Cutover Complexity",
+        "Client Coordination"
+      ],
+      "suggestedValidationQuestion": "What resolves '{RecordName}' to reach this server, and does that record get updated as part of the migration/decommission plan?",
+      "sourceModule": "DNS",
+      "sourceDataset": "DnsRecordsReferencingThisServer",
+      "projectTypeEmphasis": [
+        "Decommission",
+        "ServerRefresh",
+        "AzureMigration"
+      ]
+    },
+    {
+      "id": "RULE-DHCP-001",
+      "enabled": true,
+      "category": "Identity / AD / DC",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "Server hosts the DHCP Server role",
+      "condition": {
+        "type": "anyRowFieldMatches",
+        "dataset": "RolesFeatures",
+        "field": "Name",
+        "pattern": "(?i)^DHCP$"
+      },
+      "whyItMattersForScoping": "DHCP scopes, reservations, and options must be migrated and re-authorized; downtime or misconfiguration affects the whole network.",
+      "potentialProjectImpact": [
+        "Cutover Complexity",
+        "Client Coordination",
+        "Architecture Decision"
+      ],
+      "suggestedValidationQuestion": "Are DHCP scopes, reservations, and options documented, and is DHCP failover configured?",
+      "sourceModule": "RolesFeatures",
+      "sourceDataset": "RolesFeatures",
+      "projectTypeEmphasis": [
+        "Decommission",
+        "ServerRefresh"
+      ]
+    },
+    {
+      "id": "RULE-ADCS-001",
+      "enabled": true,
+      "category": "Certificates",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "Server hosts an Active Directory Certificate Services (CA) role",
+      "condition": {
+        "type": "anyRowFieldMatches",
+        "dataset": "RolesFeatures",
+        "field": "Name",
+        "pattern": "(?i)^AD-Certificate|ADCS"
+      },
+      "whyItMattersForScoping": "An internal Certificate Authority is a high-impact dependency. Migrating or retiring a CA requires specialized planning to avoid breaking certificate issuance and validation.",
+      "potentialProjectImpact": [
+        "Architecture Decision",
+        "Cutover Complexity",
+        "Security/Compliance",
+        "Rollback Planning"
+      ],
+      "suggestedValidationQuestion": "Is this CA issuing certificates in production, and what is the CA migration/retirement plan?",
+      "complianceRelevance": [
+        "Certificate/PKI validation"
+      ],
+      "sourceModule": "RolesFeatures",
+      "sourceDataset": "RolesFeatures"
+    },
+    {
+      "id": "RULE-GPO-001",
+      "enabled": true,
+      "category": "Identity / AD / DC",
+      "severity": "Low",
+      "confidence": "Unknown",
+      "title": "Applied Group Policy data unavailable",
+      "condition": {
+        "type": "datasetMissingOrEmpty",
+        "dataset": "AppliedGroupPolicy"
+      },
+      "whyItMattersForScoping": "Applied GPOs can affect application, security, and configuration behavior. If they cannot be enumerated, hidden configuration dependencies may exist.",
+      "potentialProjectImpact": [
+        "Architecture Decision",
+        "Client Coordination"
+      ],
+      "suggestedValidationQuestion": "Which Group Policies apply to this server, and could any affect application behavior after migration?",
+      "sourceModule": "ActiveDirectory",
+      "sourceDataset": "AppliedGroupPolicy"
+    },
+    {
+      "id": "RULE-SVC-001",
+      "enabled": true,
+      "category": "Service Account",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Service runs as a domain account",
+      "condition": {
+        "type": "anyRowFieldMatches",
+        "dataset": "Services",
+        "field": "StartName",
+        "pattern": "(?i)^(?!(NT AUTHORITY|NT SERVICE|LocalSystem|LocalService|NetworkService|\\.\\\\|BUILTIN))[^@\\\\]+\\\\[^@\\\\]+$"
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "Service '{Name}' ({DisplayName}) runs as '{StartName}'",
+      "whyItMattersForScoping": "Service accounts require password/gMSA coordination during migration or server replacement, and their ownership may be undocumented.",
+      "potentialProjectImpact": [
+        "Labor",
+        "Cutover Complexity",
+        "Vendor Dependency",
+        "Client Coordination"
+      ],
+      "suggestedValidationQuestion": "Who owns the service account used by '{Name}', and is the password or gMSA configuration documented?",
+      "suggestedScopeLanguage": "> {Brand} assumes required service account credentials or gMSA configuration details will be provided before migration activities.",
+      "likelyAffectedWBSAreas": [
+        "Application Migration",
+        "Cutover Validation",
+        "Client Coordination"
+      ],
+      "complianceRelevance": [
+        "Service account review"
+      ],
+      "sourceModule": "ServicesTasks",
+      "sourceDataset": "Services"
+    },
+    {
+      "id": "RULE-SVC-002",
+      "enabled": true,
+      "category": "Services / Tasks",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Service has an unquoted executable path containing spaces",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "Services",
+        "field": "UnquotedPathWithSpaces",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "Service '{Name}' path is unquoted and contains spaces: {PathName}",
+      "whyItMattersForScoping": "Unquoted service paths are a security and reliability concern and may need remediation as part of the project.",
+      "potentialProjectImpact": [
+        "Security/Compliance",
+        "Labor"
+      ],
+      "suggestedValidationQuestion": "Should the unquoted service path for '{Name}' be remediated during the project?",
+      "complianceRelevance": [
+        "Privileged access review"
+      ],
+      "sourceModule": "ServicesTasks",
+      "sourceDataset": "Services"
+    },
+    {
+      "id": "RULE-SVC-003",
+      "enabled": true,
+      "category": "Services / Tasks",
+      "severity": "Medium",
+      "confidence": "Likely",
+      "title": "Service executable path does not exist",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "Services",
+        "field": "PathExists",
+        "value": false
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "Service '{Name}' points to a missing executable: {PathName}",
+      "whyItMattersForScoping": "A missing executable may indicate an orphaned service, a broken install, or a path that will not migrate cleanly.",
+      "potentialProjectImpact": [
+        "Labor",
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Is service '{Name}' still required, and why is its executable path missing?",
+      "sourceModule": "ServicesTasks",
+      "sourceDataset": "Services"
+    },
+    {
+      "id": "RULE-SVC-004",
+      "enabled": true,
+      "category": "Services / Tasks",
+      "severity": "Low",
+      "confidence": "Likely",
+      "title": "Non-Microsoft automatic-start service present",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "Services",
+        "field": "IsNonMicrosoftAutoStart",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "Non-Microsoft auto-start service '{Name}' ({DisplayName})",
+      "whyItMattersForScoping": "Non-Microsoft auto-start services usually indicate installed applications or agents that must be inventoried, migrated, or cleaned up.",
+      "potentialProjectImpact": [
+        "Labor",
+        "Vendor Dependency"
+      ],
+      "suggestedValidationQuestion": "What application or vendor does service '{Name}' belong to, and is it still required?",
+      "sourceModule": "ServicesTasks",
+      "sourceDataset": "Services"
+    },
+    {
+      "id": "RULE-TASK-001",
+      "enabled": true,
+      "category": "Services / Tasks",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Scheduled task references a UNC path",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "ScheduledTasks",
+        "field": "UsesUncPath",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "TaskName",
+      "evidenceTemplate": "Scheduled task '{TaskName}' references a UNC path: {ActionsText}",
+      "whyItMattersForScoping": "Tasks referencing UNC paths depend on other servers/shares that may be renamed, migrated, or retired.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "What does scheduled task '{TaskName}' do, and does its UNC path dependency still exist after migration?",
+      "sourceModule": "ServicesTasks",
+      "sourceDataset": "ScheduledTasks"
+    },
+    {
+      "id": "RULE-TASK-002",
+      "enabled": true,
+      "category": "Services / Tasks",
+      "severity": "Medium",
+      "confidence": "Likely",
+      "title": "Scheduled task recently failed",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "ScheduledTasks",
+        "field": "LastRunFailed",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "TaskName",
+      "evidenceTemplate": "Scheduled task '{TaskName}' last result indicates failure ({LastTaskResult})",
+      "whyItMattersForScoping": "A failing task may indicate a broken automation that will resurface after migration if not understood.",
+      "potentialProjectImpact": [
+        "Labor",
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Is the failing scheduled task '{TaskName}' still needed, and should it be recreated or retired?",
+      "sourceModule": "ServicesTasks",
+      "sourceDataset": "ScheduledTasks"
+    },
+    {
+      "id": "RULE-TASK-003",
+      "enabled": true,
+      "category": "Service Account",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Scheduled task runs as a domain account",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "ScheduledTasks",
+        "field": "RunsAsDomainAccount",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "TaskName",
+      "evidenceTemplate": "Scheduled task '{TaskName}' runs as domain principal '{Principal}'",
+      "whyItMattersForScoping": "Task credential context must be reproduced on the target server; stored credentials may be undocumented.",
+      "potentialProjectImpact": [
+        "Labor",
+        "Client Coordination",
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Who owns the account used by scheduled task '{TaskName}', and is the credential documented?",
+      "complianceRelevance": [
+        "Service account review"
+      ],
+      "sourceModule": "ServicesTasks",
+      "sourceDataset": "ScheduledTasks"
+    },
+    {
+      "id": "RULE-APP-001",
+      "enabled": true,
+      "category": "Applications",
+      "severity": "Medium",
+      "confidence": "Likely",
+      "title": "Business/vendor application detected via fingerprint",
+      "condition": {
+        "type": "datasetNotEmpty",
+        "dataset": "ApplicationFingerprints"
+      },
+      "emitPerRow": true,
+      "evidenceField": "ApplicationName",
+      "evidenceTemplate": "{ApplicationName} ({Vendor}) detected from {EvidenceSource}",
+      "whyItMattersForScoping": "Line-of-business/vendor applications frequently drive labor, vendor coordination, licensing, and data migration effort.",
+      "potentialProjectImpact": [
+        "Labor",
+        "Vendor Dependency",
+        "Data Migration",
+        "Licensing"
+      ],
+      "suggestedValidationQuestion": "Who owns {ApplicationName}, is vendor support available, and where is its data stored?",
+      "sourceModule": "Applications",
+      "sourceDataset": "ApplicationFingerprints"
+    },
+    {
+      "id": "RULE-APP-002",
+      "enabled": true,
+      "category": "Licensing",
+      "severity": "High",
+      "confidence": "Likely",
+      "title": "License manager service detected",
+      "condition": {
+        "type": "anyRowFieldMatches",
+        "dataset": "Services",
+        "field": "DisplayName",
+        "pattern": "(?i)flex(net|lm)|sentinel (ldk|hasp|license)|codemeter|reprise|\\bRLM\\b|lmgrd|license server"
+      },
+      "emitPerRow": true,
+      "evidenceField": "DisplayName",
+      "evidenceTemplate": "License manager service detected: '{DisplayName}' ({Name})",
+      "whyItMattersForScoping": "License managers frequently bind to host identity or hardware dongles; server replacement can require reactivation and vendor coordination.",
+      "potentialProjectImpact": [
+        "Licensing",
+        "Vendor Dependency",
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Which application depends on '{DisplayName}', and is license reactivation or dongle transfer required if this server is replaced?",
+      "sourceModule": "Licensing",
+      "sourceDataset": "Services"
+    },
+    {
+      "id": "RULE-SQL-001",
+      "enabled": true,
+      "category": "Database",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "SQL Server instance detected",
+      "condition": {
+        "type": "anyRowFieldNotEquals",
+        "dataset": "SqlInstances",
+        "field": "IsWindowsInternalDatabase",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "InstanceName",
+      "evidenceTemplate": "SQL instance '{InstanceName}' (service {ServiceName})",
+      "whyItMattersForScoping": "SQL Server hosting drives data migration effort, backup validation, licensing review, and application cutover coordination.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Labor",
+        "Licensing",
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Which applications use SQL instance '{InstanceName}', and is there a documented backup and recovery plan?",
+      "sourceModule": "SQL",
+      "sourceDataset": "SqlInstances",
+      "projectTypeEmphasis": [
+        "AppMigration",
+        "AzureMigration",
+        "ServerRefresh"
+      ]
+    },
+    {
+      "id": "RULE-SQL-002",
+      "enabled": true,
+      "category": "Database",
+      "severity": "Medium",
+      "confidence": "Unknown",
+      "title": "SQL detected but deep database enumeration was not performed",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SqlInstances",
+        "field": "DeepQueryPerformed",
+        "value": false
+      },
+      "emitPerRow": true,
+      "evidenceField": "InstanceName",
+      "evidenceTemplate": "SQL instance '{InstanceName}' detected; database-level details were not queried",
+      "whyItMattersForScoping": "Without database enumeration, database count, sizes, recovery models, and backup status remain unknown and require validation.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Labor"
+      ],
+      "suggestedValidationQuestion": "Can integrated SQL auth be used to enumerate databases on '{InstanceName}', or can a DBA provide database inventory and backup status?",
+      "sourceModule": "SQL",
+      "sourceDataset": "SqlInstances"
+    },
+    {
+      "id": "RULE-SQL-003",
+      "enabled": true,
+      "category": "Database",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Non-Microsoft database engine detected",
+      "condition": {
+        "type": "datasetNotEmpty",
+        "dataset": "OtherDatabaseEngines"
+      },
+      "emitPerRow": true,
+      "evidenceField": "Engine",
+      "evidenceTemplate": "Database engine detected: {Engine} ({Evidence})",
+      "whyItMattersForScoping": "Non-Microsoft database engines often tie to specific line-of-business applications and require engine-specific migration and backup expertise.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Vendor Dependency",
+        "Labor"
+      ],
+      "suggestedValidationQuestion": "Which application uses the {Engine} database, and who supports its migration?",
+      "sourceModule": "SQL",
+      "sourceDataset": "OtherDatabaseEngines"
+    },
+    {
+      "id": "RULE-IIS-001",
+      "enabled": true,
+      "category": "Web",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "IIS site(s) present",
+      "condition": {
+        "type": "datasetNotEmpty",
+        "dataset": "IisSites"
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "IIS site '{Name}' (state {State})",
+      "whyItMattersForScoping": "IIS-hosted applications carry binding, certificate, host-header, app-pool identity, and connection-string dependencies that must be reproduced on migration.",
+      "potentialProjectImpact": [
+        "Labor",
+        "Cutover Complexity",
+        "Architecture Decision"
+      ],
+      "suggestedValidationQuestion": "Who owns the web application at IIS site '{Name}', and are its certificate and host-header dependencies documented?",
+      "sourceModule": "IIS",
+      "sourceDataset": "IisSites"
+    },
+    {
+      "id": "RULE-IIS-002",
+      "enabled": true,
+      "category": "Service Account",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "IIS application pool runs under a domain/custom identity",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "IisAppPools",
+        "field": "UsesCustomIdentity",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "App pool '{Name}' identity: {IdentityType} / {UserName}",
+      "whyItMattersForScoping": "Custom app-pool identities require credential coordination and permission reproduction on the target server.",
+      "potentialProjectImpact": [
+        "Labor",
+        "Cutover Complexity",
+        "Client Coordination"
+      ],
+      "suggestedValidationQuestion": "Who owns the identity for app pool '{Name}', and is its password documented?",
+      "complianceRelevance": [
+        "Service account review"
+      ],
+      "sourceModule": "IIS",
+      "sourceDataset": "IisAppPools"
+    },
+    {
+      "id": "RULE-HV-001",
+      "enabled": true,
+      "category": "Hyper-V / Cluster",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "Hyper-V host with virtual machines present",
+      "condition": {
+        "type": "datasetNotEmpty",
+        "dataset": "HyperVVMs"
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "VM '{Name}' (state {State}, generation {Generation})",
+      "whyItMattersForScoping": "A Hyper-V host carries all of its guest workloads; refresh or migration must account for every VM, its storage, and backup coverage.",
+      "potentialProjectImpact": [
+        "Architecture Decision",
+        "Data Migration",
+        "Cutover Complexity",
+        "Rollback Planning"
+      ],
+      "suggestedValidationQuestion": "Is each VM on this host inventoried and backed up, and what is the plan to migrate guest workloads?",
+      "sourceModule": "HyperV",
+      "sourceDataset": "HyperVVMs",
+      "projectTypeEmphasis": [
+        "HyperVRefresh",
+        "ServerRefresh",
+        "Decommission"
+      ]
+    },
+    {
+      "id": "RULE-HV-002",
+      "enabled": true,
+      "category": "Hyper-V / Cluster",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Hyper-V VM checkpoints present",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "HyperVVMs",
+        "field": "HasCheckpoints",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "VM '{Name}' has one or more checkpoints",
+      "whyItMattersForScoping": "Long-lived checkpoints consume storage and complicate backup/migration; they should be reviewed before any move.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Rollback Planning"
+      ],
+      "suggestedValidationQuestion": "Are the checkpoints on VM '{Name}' intentional, and can they be merged before migration?",
+      "sourceModule": "HyperV",
+      "sourceDataset": "HyperVVMs"
+    },
+    {
+      "id": "RULE-CLU-001",
+      "enabled": true,
+      "category": "Hyper-V / Cluster",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "Failover cluster membership detected",
+      "condition": {
+        "type": "datasetNotEmpty",
+        "dataset": "ClusterDiscovery"
+      },
+      "whyItMattersForScoping": "Cluster membership introduces quorum, witness, shared storage, and failover dependencies that must be accounted for in any change.",
+      "potentialProjectImpact": [
+        "Architecture Decision",
+        "Cutover Complexity",
+        "Rollback Planning"
+      ],
+      "suggestedValidationQuestion": "What roles does this cluster host, and how are quorum, witness, and shared storage configured?",
+      "sourceModule": "Cluster",
+      "sourceDataset": "ClusterDiscovery"
+    },
+    {
+      "id": "RULE-FS-001",
+      "enabled": true,
+      "category": "File / Print",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "SMB file shares present",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SmbShares",
+        "field": "IsUserShare",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "SMB share '{Name}' -> {Path}",
+      "whyItMattersForScoping": "File shares imply a file server role; users and applications may depend on the server name and UNC paths, driving data migration and cutover effort.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Cutover Complexity",
+        "Client Coordination"
+      ],
+      "suggestedValidationQuestion": "Who uses SMB share '{Name}', and do users or applications reference it by server name / UNC path?",
+      "sourceModule": "FileShares",
+      "sourceDataset": "SmbShares"
+    },
+    {
+      "id": "RULE-FS-002",
+      "enabled": true,
+      "category": "File / Print",
+      "severity": "Low",
+      "confidence": "Unknown",
+      "title": "Deep file share scan not performed",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "FileShareSummary",
+        "field": "DeepScanPerformed",
+        "value": false
+      },
+      "whyItMattersForScoping": "Without a deep scan, data volume, large/old files, and complex ACLs are unknown, so file migration effort cannot be estimated with confidence.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Labor"
+      ],
+      "suggestedValidationQuestion": "Can a deep file share scan be scheduled off-hours to size the data migration effort?",
+      "sourceModule": "FileShares",
+      "sourceDataset": "FileShareSummary"
+    },
+    {
+      "id": "RULE-PRINT-001",
+      "enabled": true,
+      "category": "File / Print",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Shared print queues present",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "Printers",
+        "field": "Shared",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "Shared printer '{Name}' (driver {DriverName}, port {PortName})",
+      "whyItMattersForScoping": "Shared printers imply a print server role with driver, port/IP, and login-script/GPO dependencies that must be migrated.",
+      "potentialProjectImpact": [
+        "Cutover Complexity",
+        "Client Coordination",
+        "Vendor Dependency"
+      ],
+      "suggestedValidationQuestion": "Do users map to printer '{Name}' by server name, and are current drivers available for the target OS?",
+      "sourceModule": "PrintServer",
+      "sourceDataset": "Printers"
+    },
+    {
+      "id": "RULE-NET-001",
+      "enabled": true,
+      "category": "Network",
+      "severity": "Low",
+      "confidence": "Confirmed",
+      "title": "Static IP configuration detected",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "IPConfiguration",
+        "field": "IsStatic",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "InterfaceAlias",
+      "evidenceTemplate": "Interface '{InterfaceAlias}' has static IP {IPv4Address}",
+      "whyItMattersForScoping": "Static IP assignments are frequently referenced by other systems, firewall rules, or applications, and must be planned during a move.",
+      "potentialProjectImpact": [
+        "Cutover Complexity",
+        "Client Coordination"
+      ],
+      "suggestedValidationQuestion": "Do other systems reference this server's static IP {IPv4Address} directly?",
+      "sourceModule": "Network",
+      "sourceDataset": "IPConfiguration"
+    },
+    {
+      "id": "RULE-NET-002",
+      "enabled": true,
+      "category": "Network",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Listening database/web/license port detected",
+      "condition": {
+        "type": "anyRowFieldMatches",
+        "dataset": "ListeningPorts",
+        "field": "LocalPort",
+        "pattern": "^(1433|1434|3306|5432|1521|3050|443|80|8080|27000|27001|1947|5093|22350)$"
+      },
+      "emitPerRow": true,
+      "evidenceField": "LocalPort",
+      "evidenceTemplate": "Listening on port {LocalPort} ({Process}/{ServiceName})",
+      "whyItMattersForScoping": "Application/database/license ports indicate services other systems connect to; these connections must be preserved or repointed during migration.",
+      "potentialProjectImpact": [
+        "Cutover Complexity",
+        "Data Migration"
+      ],
+      "suggestedValidationQuestion": "Which clients connect to port {LocalPort} on this server, and how are they configured to find it?",
+      "sourceModule": "Network",
+      "sourceDataset": "ListeningPorts"
+    },
+    {
+      "id": "RULE-SEC-SMB1",
+      "enabled": true,
+      "category": "Security",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "SMBv1 is enabled",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SecurityPosture",
+        "field": "Smb1Enabled",
+        "value": true
+      },
+      "whyItMattersForScoping": "SMBv1 is a deprecated, insecure protocol. Its presence indicates legacy clients/devices that may block modernization and represents a security risk.",
+      "potentialProjectImpact": [
+        "Security/Compliance",
+        "Architecture Decision"
+      ],
+      "suggestedValidationQuestion": "Which devices or applications still require SMBv1, and can they be remediated before or during the project?",
+      "complianceRelevance": [
+        "Insecure protocol review"
+      ],
+      "sourceModule": "SecurityPosture",
+      "sourceDataset": "SecurityPosture",
+      "projectTypeEmphasis": [
+        "CMMCReadiness"
+      ]
+    },
+    {
+      "id": "RULE-SEC-RDP-NLA",
+      "enabled": true,
+      "category": "Security",
+      "severity": "Medium",
+      "confidence": "Likely",
+      "title": "RDP enabled without Network Level Authentication",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SecurityPosture",
+        "field": "RdpEnabledNoNla",
+        "value": true
+      },
+      "whyItMattersForScoping": "RDP without NLA is weaker against certain attacks and may indicate a security posture gap to remediate.",
+      "potentialProjectImpact": [
+        "Security/Compliance"
+      ],
+      "suggestedValidationQuestion": "Can Network Level Authentication be enabled for RDP on this server?",
+      "complianceRelevance": [
+        "External access validation",
+        "Privileged access review"
+      ],
+      "sourceModule": "SecurityPosture",
+      "sourceDataset": "SecurityPosture",
+      "projectTypeEmphasis": [
+        "CMMCReadiness"
+      ]
+    },
+    {
+      "id": "RULE-SEC-FW",
+      "enabled": true,
+      "category": "Security",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "A Windows Firewall profile is disabled",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "FirewallProfiles",
+        "field": "Enabled",
+        "value": false
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "Firewall profile '{Name}' is disabled",
+      "whyItMattersForScoping": "A disabled firewall profile is a security exposure and may indicate reliance on perimeter controls that will differ after migration.",
+      "potentialProjectImpact": [
+        "Security/Compliance",
+        "Architecture Decision"
+      ],
+      "suggestedValidationQuestion": "Why is the '{Name}' firewall profile disabled, and can it be enabled?",
+      "complianceRelevance": [
+        "External access validation"
+      ],
+      "sourceModule": "SecurityPosture",
+      "sourceDataset": "FirewallProfiles",
+      "projectTypeEmphasis": [
+        "CMMCReadiness"
+      ]
+    },
+    {
+      "id": "RULE-SEC-AV",
+      "enabled": true,
+      "category": "Security",
+      "severity": "High",
+      "confidence": "Possible",
+      "title": "No antivirus/EDR product detected",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SecurityPosture",
+        "field": "AnyAvOrEdrDetected",
+        "value": false
+      },
+      "whyItMattersForScoping": "If no AV/EDR is detected, the server may be unprotected or use an undetected product; this must be validated for security and compliance.",
+      "potentialProjectImpact": [
+        "Security/Compliance"
+      ],
+      "suggestedValidationQuestion": "What endpoint protection is deployed on this server, since none was detected automatically?",
+      "complianceRelevance": [
+        "Evidence collection consideration"
+      ],
+      "sourceModule": "SecurityPosture",
+      "sourceDataset": "SecurityPosture",
+      "projectTypeEmphasis": [
+        "CMMCReadiness"
+      ]
+    },
+    {
+      "id": "RULE-SEC-ADMINS",
+      "enabled": true,
+      "category": "Security",
+      "severity": "Medium",
+      "confidence": "Likely",
+      "title": "Large local Administrators group membership",
+      "condition": {
+        "type": "anyRowFieldGreaterThan",
+        "dataset": "SecurityPosture",
+        "field": "LocalAdminCount",
+        "value": 5
+      },
+      "whyItMattersForScoping": "Excessive local administrators is a privileged-access concern and should be reviewed for security/compliance.",
+      "potentialProjectImpact": [
+        "Security/Compliance"
+      ],
+      "suggestedValidationQuestion": "Should the local Administrators group membership be reviewed and reduced?",
+      "complianceRelevance": [
+        "Local administrator review",
+        "Privileged access review"
+      ],
+      "sourceModule": "SecurityPosture",
+      "sourceDataset": "SecurityPosture",
+      "projectTypeEmphasis": [
+        "CMMCReadiness"
+      ]
+    },
+    {
+      "id": "RULE-CERT-001",
+      "enabled": true,
+      "category": "Certificates",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Certificate expiring soon",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "Certificates",
+        "field": "ExpiringSoon",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "Subject",
+      "evidenceTemplate": "Certificate '{Subject}' expires {NotAfter} (thumbprint {Thumbprint})",
+      "whyItMattersForScoping": "Certificates expiring soon may need renewal/reissue as part of the project, especially if bound to IIS, RDS, or NPS.",
+      "potentialProjectImpact": [
+        "Cutover Complexity",
+        "Security/Compliance"
+      ],
+      "suggestedValidationQuestion": "Who owns the certificate '{Subject}', and can it be renewed or reissued before cutover?",
+      "complianceRelevance": [
+        "Certificate/PKI validation"
+      ],
+      "sourceModule": "Certificates",
+      "sourceDataset": "Certificates"
+    },
+    {
+      "id": "RULE-CERT-002",
+      "enabled": true,
+      "category": "Certificates",
+      "severity": "Low",
+      "confidence": "Confirmed",
+      "title": "Certificate with private key present (migration/reissue consideration)",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "Certificates",
+        "field": "HasPrivateKey",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "Subject",
+      "evidenceTemplate": "Certificate '{Subject}' has a private key (thumbprint {Thumbprint})",
+      "whyItMattersForScoping": "Certificates with private keys bound to services/sites typically need reissue or migration; the toolkit does not export keys.",
+      "potentialProjectImpact": [
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Is the certificate '{Subject}' still in use, and can it be reissued on the target server if it cannot be exported?",
+      "complianceRelevance": [
+        "Certificate/PKI validation"
+      ],
+      "sourceModule": "Certificates",
+      "sourceDataset": "Certificates"
+    },
+    {
+      "id": "RULE-BAK-001",
+      "enabled": true,
+      "category": "Backup / DR",
+      "severity": "High",
+      "confidence": "NotDetected",
+      "title": "No backup software/agent detected",
+      "condition": {
+        "type": "datasetMissingOrEmpty",
+        "dataset": "BackupDiscovery"
+      },
+      "whyItMattersForScoping": "If no backup solution is detected, there may be no recovery point; this is a critical validation before any migration or decommission.",
+      "potentialProjectImpact": [
+        "Rollback Planning",
+        "Security/Compliance"
+      ],
+      "suggestedValidationQuestion": "How is this server backed up, since no backup agent was detected, and when was recovery last tested?",
+      "complianceRelevance": [
+        "Backup/recovery validation"
+      ],
+      "sourceModule": "BackupDR",
+      "sourceDataset": "BackupDiscovery"
+    },
+    {
+      "id": "RULE-BAK-002",
+      "enabled": true,
+      "category": "Backup / DR",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Backup software detected but recent success unknown",
+      "condition": {
+        "type": "datasetNotEmpty",
+        "dataset": "BackupDiscovery"
+      },
+      "emitPerRow": true,
+      "evidenceField": "Product",
+      "evidenceTemplate": "Backup indicator: {Product} ({Evidence})",
+      "whyItMattersForScoping": "Detecting backup software does not confirm backups are current or restorable; this must be validated before cutover/decommission.",
+      "potentialProjectImpact": [
+        "Rollback Planning"
+      ],
+      "suggestedValidationQuestion": "For {Product}, when was the last successful backup and last tested restore of this server?",
+      "complianceRelevance": [
+        "Backup/recovery validation"
+      ],
+      "sourceModule": "BackupDR",
+      "sourceDataset": "BackupDiscovery"
+    },
+    {
+      "id": "RULE-OS-EOL",
+      "enabled": true,
+      "category": "Operating System",
+      "severity": "High",
+      "confidence": "Likely",
+      "title": "Operating system is end-of-life or near end-of-life",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "OperatingSystem",
+        "field": "IsEndOfLifeOrNear",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "Caption",
+      "evidenceTemplate": "OS '{Caption}' (build {BuildNumber}) is at or near end of support",
+      "whyItMattersForScoping": "An unsupported OS drives migration urgency, security risk, and may require in-place or side-by-side upgrade planning.",
+      "potentialProjectImpact": [
+        "Architecture Decision",
+        "Security/Compliance",
+        "Labor"
+      ],
+      "suggestedValidationQuestion": "Is there a plan to move off '{Caption}' given its support status?",
+      "complianceRelevance": [
+        "Unsupported OS/software risk"
+      ],
+      "sourceModule": "SystemInventory",
+      "sourceDataset": "OperatingSystem"
+    },
+    {
+      "id": "RULE-ODBC-001",
+      "enabled": true,
+      "category": "Database",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "ODBC/System DSN database dependency detected",
+      "condition": {
+        "type": "datasetNotEmpty",
+        "dataset": "OdbcDsns"
+      },
+      "emitPerRow": true,
+      "evidenceField": "DsnName",
+      "evidenceTemplate": "DSN '{DsnName}' -> server '{Server}' database '{Database}' (driver {Driver})",
+      "whyItMattersForScoping": "ODBC DSNs reveal hardcoded application-to-database dependencies that must be repointed after migration; 32-bit DSNs are easy to miss.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Which application uses DSN '{DsnName}', and does its target server/database change after migration?",
+      "sourceModule": "SQL",
+      "sourceDataset": "OdbcDsns"
+    },
+    {
+      "id": "RULE-CFG-001",
+      "enabled": true,
+      "category": "Applications",
+      "severity": "Medium",
+      "confidence": "Likely",
+      "title": "Config dependency hints detected (hardcoded server/DB/UNC/endpoints)",
+      "condition": {
+        "type": "datasetNotEmpty",
+        "dataset": "ConfigDependencyHints"
+      },
+      "whyItMattersForScoping": "Hardcoded dependencies in config files (servers, databases, UNC paths, SMTP/LDAP/HTTP endpoints) are common hidden migration blockers.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Cutover Complexity",
+        "Architecture Decision"
+      ],
+      "suggestedValidationQuestion": "The config scan found hardcoded dependencies (see the ConfigDependencyHints export for the per-file detail) - for each, does the referenced target still exist after migration, and who can update it if it changes?",
+      "sourceModule": "ConfigDependencyScan",
+      "sourceDataset": "ConfigDependencyHints",
+      "comment": "Deliberately NOT emitPerRow: per-row emission hit the 200 cap and supplied 72% of wbs-inputs.csv on the first real Deep run (owner decision 2026-09-18). One aggregate finding carries the row count; the per-file detail exports in full via the ConfigDependencyHints dataset, so no evidence is lost."
+    },
+    {
+      "id": "RULE-CFG-002",
+      "enabled": true,
+      "category": "Applications",
+      "severity": "Low",
+      "confidence": "Unknown",
+      "title": "Config dependency scan was not performed",
+      "condition": {
+        "type": "datasetMissingOrEmpty",
+        "dataset": "ConfigDependencyHints"
+      },
+      "whyItMattersForScoping": "When the config dependency scan is disabled, hardcoded dependencies may remain undiscovered and surface during cutover.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Can a config dependency scan be enabled (Deep mode or -IncludeConfigDependencyScan) to surface hardcoded dependencies?",
+      "sourceModule": "ConfigDependencyScan",
+      "sourceDataset": "ConfigDependencyHints"
+    },
+    {
+      "id": "RULE-RDS-001",
+      "enabled": true,
+      "category": "Identity / AD / DC",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Remote Desktop Services role detected",
+      "condition": {
+        "type": "datasetNotEmpty",
+        "dataset": "RdsDiscovery"
+      },
+      "whyItMattersForScoping": "RDS carries licensing (CALs), certificate, gateway/MFA, and user-profile dependencies that materially affect migration effort.",
+      "potentialProjectImpact": [
+        "Licensing",
+        "Cutover Complexity",
+        "Client Coordination"
+      ],
+      "suggestedValidationQuestion": "How is RDS licensing configured, and are published apps, collections, and user profile disks documented?",
+      "sourceModule": "RDS",
+      "sourceDataset": "RdsDiscovery"
+    },
+    {
+      "id": "RULE-NPS-001",
+      "enabled": true,
+      "category": "Security",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "NPS / RADIUS role detected",
+      "condition": {
+        "type": "datasetNotEmpty",
+        "dataset": "NpsRadiusDiscovery"
+      },
+      "whyItMattersForScoping": "NPS/RADIUS authenticates network access (VPN/Wi-Fi/switches) and may integrate MFA; shared secrets are intentionally not collected and must be re-coordinated on migration.",
+      "potentialProjectImpact": [
+        "Cutover Complexity",
+        "Vendor Dependency",
+        "Security/Compliance",
+        "Client Coordination"
+      ],
+      "suggestedValidationQuestion": "Which devices authenticate via this NPS/RADIUS server, and how are shared secrets and certificates managed?",
+      "complianceRelevance": [
+        "External access validation"
+      ],
+      "sourceModule": "NPS_RADIUS",
+      "sourceDataset": "NpsRadiusDiscovery"
+    },
+    {
+      "id": "RULE-VENDOR-001",
+      "enabled": true,
+      "category": "Vendor",
+      "severity": "Low",
+      "confidence": "Confirmed",
+      "title": "Third-party vendor/RMM/security/backup agent detected",
+      "condition": {
+        "type": "datasetNotEmpty",
+        "dataset": "VendorAgents"
+      },
+      "emitPerRow": true,
+      "evidenceField": "AgentName",
+      "evidenceTemplate": "Vendor agent detected: {AgentName} ({Category})",
+      "whyItMattersForScoping": "Vendor agents (RMM, EDR, backup, monitoring, hardware) must be transitioned, reinstalled, or cleaned up, and may raise alerts during discovery.",
+      "potentialProjectImpact": [
+        "Vendor Dependency"
+      ],
+      "suggestedValidationQuestion": "How is the {AgentName} agent handled during migration/decommission, and who manages its console?",
+      "sourceModule": "VendorAgents",
+      "sourceDataset": "VendorAgents"
+    },
+    {
+      "id": "RULE-PERF-CPU",
+      "enabled": true,
+      "category": "Performance",
+      "severity": "Medium",
+      "confidence": "Possible",
+      "title": "High CPU pressure at snapshot",
+      "condition": {
+        "type": "anyRowFieldGreaterThan",
+        "dataset": "PerformanceSnapshot",
+        "field": "CpuPercent",
+        "value": 85
+      },
+      "whyItMattersForScoping": "A point-in-time high CPU reading may indicate undersizing; it is a snapshot, not trend data, and should be validated.",
+      "potentialProjectImpact": [
+        "Architecture Decision"
+      ],
+      "suggestedValidationQuestion": "Is high CPU usage typical for this server, and should target sizing account for it?",
+      "sourceModule": "PerformanceSnapshot",
+      "sourceDataset": "PerformanceSnapshot"
+    },
+    {
+      "id": "RULE-STG-LOWFREE",
+      "enabled": true,
+      "category": "Storage",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Volume with low free space",
+      "condition": {
+        "type": "anyRowFieldLessThan",
+        "dataset": "Volumes",
+        "field": "PercentFree",
+        "value": 10
+      },
+      "emitPerRow": true,
+      "evidenceField": "DriveLetter",
+      "evidenceTemplate": "Volume {DriveLetter} has {PercentFree}% free ({FreeGB} GB of {SizeGB} GB)",
+      "whyItMattersForScoping": "Low free space affects migration staging, backups, and may indicate data-volume sizing needs on the target.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Architecture Decision"
+      ],
+      "suggestedValidationQuestion": "Is the low free space on {DriveLetter} expected, and does target storage account for growth?",
+      "sourceModule": "Storage",
+      "sourceDataset": "Volumes"
+    },
+    {
+      "id": "RULE-CORE-NOTADMIN",
+      "enabled": true,
+      "category": "Discovery Quality",
+      "severity": "Low",
+      "confidence": "Confirmed",
+      "title": "Discovery not running elevated",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "ExecutionContext",
+        "field": "IsAdmin",
+        "value": false
+      },
+      "whyItMattersForScoping": "Without elevation, some data (security posture, certain WMI/registry paths, event logs) may be incomplete, reducing confidence in the discovery.",
+      "potentialProjectImpact": [
+        "Labor"
+      ],
+      "suggestedValidationQuestion": "Can discovery be re-run elevated to improve completeness of the collected data?",
+      "sourceModule": "SystemInventory",
+      "sourceDataset": "ExecutionContext"
+    },
+    {
+      "id": "RULE-CORE-REBOOT",
+      "enabled": true,
+      "category": "Discovery Quality",
+      "severity": "Low",
+      "confidence": "Likely",
+      "title": "Pending reboot detected",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "PendingReboot",
+        "field": "RebootPending",
+        "value": true
+      },
+      "whyItMattersForScoping": "A pending reboot can mask configuration state and should be resolved in a controlled window before major changes.",
+      "potentialProjectImpact": [
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Can the pending reboot be completed in a maintenance window before migration activities?",
+      "sourceModule": "SystemInventory",
+      "sourceDataset": "PendingReboot"
+    },
+    {
+      "id": "RULE-CORE-SYSTEM",
+      "enabled": true,
+      "category": "Discovery Quality",
+      "severity": "Low",
+      "confidence": "Confirmed",
+      "title": "Discovery running as SYSTEM",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "ExecutionContext",
+        "field": "IsSystem",
+        "value": true
+      },
+      "whyItMattersForScoping": "When running as SYSTEM, user-context data (mapped drives, per-user ODBC DSNs, HKCU installs) can be invisible, so some application dependencies may be under-reported.",
+      "potentialProjectImpact": [
+        "Labor"
+      ],
+      "suggestedValidationQuestion": "Can discovery also be run in an interactive user context to surface user-scoped dependencies?",
+      "sourceModule": "SystemInventory",
+      "sourceDataset": "ExecutionContext"
+    },
+    {
+      "id": "RULE-SVC-005",
+      "enabled": true,
+      "category": "Services / Tasks",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Service runs from a user-profile path",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "Services",
+        "field": "RunsFromUserProfile",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "Service '{Name}' runs from a user profile path: {PathName}",
+      "whyItMattersForScoping": "A service running from a user profile is unusual, may break on migration, and can indicate a non-standard or user-installed application.",
+      "potentialProjectImpact": [
+        "Labor",
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Why does service '{Name}' run from a user profile, and where should it live on the target server?",
+      "sourceModule": "ServicesTasks",
+      "sourceDataset": "Services"
+    },
+    {
+      "id": "RULE-SVC-006",
+      "enabled": true,
+      "category": "Services / Tasks",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "Service executable is on a network/UNC path",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "Services",
+        "field": "RunsFromNetworkPath",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "Service '{Name}' runs from a network path: {PathName}",
+      "whyItMattersForScoping": "A service binary on a UNC path is a hard dependency on another server/share that must survive migration or the service will fail to start.",
+      "potentialProjectImpact": [
+        "Cutover Complexity",
+        "Data Migration",
+        "Architecture Decision"
+      ],
+      "suggestedValidationQuestion": "Which server/share hosts the executable for service '{Name}', and does it survive the migration?",
+      "sourceModule": "ServicesTasks",
+      "sourceDataset": "Services"
+    },
+    {
+      "id": "RULE-TASK-004",
+      "enabled": true,
+      "category": "Services / Tasks",
+      "severity": "Low",
+      "confidence": "Confirmed",
+      "title": "Scheduled task runs a script/interpreter",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "ScheduledTasks",
+        "field": "RunsScript",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "TaskName",
+      "evidenceTemplate": "Scheduled task '{TaskName}' runs a script/interpreter: {ActionsText}",
+      "whyItMattersForScoping": "Script-based tasks are custom automation that must be understood and recreated on the target server; they often embed paths, servers, and credentials.",
+      "potentialProjectImpact": [
+        "Labor",
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "What does scheduled task '{TaskName}' do, and who maintains its script?",
+      "sourceModule": "ServicesTasks",
+      "sourceDataset": "ScheduledTasks"
+    },
+    {
+      "id": "RULE-TASK-005",
+      "enabled": true,
+      "category": "Services / Tasks",
+      "severity": "Medium",
+      "confidence": "Likely",
+      "title": "Scheduled task performs backup/export/import",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "ScheduledTasks",
+        "field": "PerformsBackupExportImport",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "TaskName",
+      "evidenceTemplate": "Scheduled task '{TaskName}' appears to perform backup/export/import: {ActionsText}",
+      "whyItMattersForScoping": "Data-movement automations frequently target other servers/shares and are business-critical; they must be validated and re-pointed after migration.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Rollback Planning",
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "What does the data job in task '{TaskName}' move, where does it go, and who validates it after migration?",
+      "sourceModule": "ServicesTasks",
+      "sourceDataset": "ScheduledTasks"
+    },
+    {
+      "id": "RULE-APP-003",
+      "enabled": true,
+      "category": "Applications",
+      "severity": "Medium",
+      "confidence": "Likely",
+      "title": "Legacy runtime/framework detected",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "InstalledApplications",
+        "field": "IsLegacyRuntime",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "DisplayName",
+      "evidenceTemplate": "Legacy runtime detected: {DisplayName} {DisplayVersion}",
+      "whyItMattersForScoping": "Legacy runtimes (old .NET/VC++/Java/Silverlight/Crystal) may be unsupported on a modern target OS and indicate an application that needs compatibility validation.",
+      "potentialProjectImpact": [
+        "Architecture Decision",
+        "Labor",
+        "Vendor Dependency"
+      ],
+      "suggestedValidationQuestion": "Which application requires {DisplayName}, and is it supported on the target operating system?",
+      "complianceRelevance": [
+        "Unsupported OS/software risk"
+      ],
+      "sourceModule": "Applications",
+      "sourceDataset": "InstalledApplications"
+    },
+    {
+      "id": "RULE-APP-004",
+      "enabled": true,
+      "category": "Applications",
+      "severity": "Low",
+      "confidence": "Confirmed",
+      "title": "32-bit application dependencies present",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "InstalledApplications",
+        "field": "Is32Bit",
+        "value": true
+      },
+      "whyItMattersForScoping": "32-bit applications may require the WoW64 subsystem and 32-bit ODBC/OLEDB drivers on the target; this is a common migration gotcha.",
+      "potentialProjectImpact": [
+        "Labor",
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Do any 32-bit applications require matching 32-bit drivers/DSNs on the target server?",
+      "sourceModule": "Applications",
+      "sourceDataset": "InstalledApplications"
+    },
+    {
+      "id": "RULE-SQL-004",
+      "enabled": true,
+      "category": "Database",
+      "severity": "Medium",
+      "confidence": "Likely",
+      "title": "SQL Server Express edition detected",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SqlInstances",
+        "field": "IsExpress",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "InstanceName",
+      "evidenceTemplate": "SQL Express instance '{InstanceName}' (service {ServiceName})",
+      "whyItMattersForScoping": "SQL Express has database-size, memory, and CPU limits; growth against those limits may force an edition change during migration.",
+      "potentialProjectImpact": [
+        "Architecture Decision",
+        "Licensing",
+        "Data Migration"
+      ],
+      "suggestedValidationQuestion": "Has database growth against SQL Express limits been evaluated for '{InstanceName}'?",
+      "sourceModule": "SQL",
+      "sourceDataset": "SqlInstances"
+    },
+    {
+      "id": "RULE-SQL-005",
+      "enabled": true,
+      "category": "Database",
+      "severity": "Low",
+      "confidence": "Confirmed",
+      "title": "SQL Agent jobs present",
+      "condition": {
+        "type": "datasetNotEmpty",
+        "dataset": "SqlAgentJobs"
+      },
+      "whyItMattersForScoping": "SQL Agent jobs are server-side automation (backups, maintenance, ETL) that must be migrated and re-validated; they may reference paths, proxies, and linked servers.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Labor",
+        "Rollback Planning"
+      ],
+      "suggestedValidationQuestion": "What do the SQL Agent jobs do, and who validates them after migration?",
+      "sourceModule": "SQL",
+      "sourceDataset": "SqlAgentJobs"
+    },
+    {
+      "id": "RULE-SQL-006",
+      "enabled": true,
+      "category": "Database",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "SQL linked servers present",
+      "condition": {
+        "type": "datasetNotEmpty",
+        "dataset": "SqlLinkedServers"
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "Linked server '{Name}' -> {DataSource} ({Product})",
+      "whyItMattersForScoping": "Linked servers create cross-server dependencies that break if the remote server changes name/address or is retired.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Cutover Complexity",
+        "Architecture Decision"
+      ],
+      "suggestedValidationQuestion": "Is the remote endpoint for linked server '{Name}' still valid after migration?",
+      "sourceModule": "SQL",
+      "sourceDataset": "SqlLinkedServers"
+    },
+    {
+      "id": "RULE-ISCSI-001",
+      "enabled": true,
+      "category": "Storage",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "iSCSI target serves LUNs to other servers",
+      "condition": {
+        "type": "datasetNotEmpty",
+        "dataset": "IscsiTargets"
+      },
+      "emitPerRow": true,
+      "evidenceField": "TargetName",
+      "evidenceTemplate": "Target '{TargetName}' serves {LunCount} LUN(s) to {InitiatorCount} initiator(s): {InitiatorIds}",
+      "whyItMattersForScoping": "Every initiator listed loses its disks the moment this server is retired, rebuilt or renamed. Nothing on the initiators' side of a service or share list shows the dependency, so it is easy to miss until a cluster or database goes offline.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Downtime",
+        "Client Coordination"
+      ],
+      "suggestedValidationQuestion": "Which servers use target '{TargetName}', and what data or cluster storage lives on its LUNs?",
+      "sourceModule": "Storage",
+      "sourceDataset": "IscsiTargets"
+    },
+    {
+      "id": "RULE-ISCSI-002",
+      "enabled": true,
+      "category": "Storage",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Server uses disks on an external iSCSI target",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "IscsiInitiatorConnections",
+        "field": "IsConnected",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "TargetNodeAddress",
+      "evidenceTemplate": "Connected to iSCSI target {TargetNodeAddress} via {PortalAddresses}",
+      "whyItMattersForScoping": "Volumes on an iSCSI target are not local: a migration must move or re-present them, and the portal address is a hard-coded dependency that changes if the storage server does.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Which volumes on this server come from iSCSI target {TargetNodeAddress}, and who owns that storage?",
+      "sourceModule": "Storage",
+      "sourceDataset": "IscsiInitiatorConnections"
+    },
+    {
+      "id": "RULE-CL-002",
+      "enabled": true,
+      "category": "Hyper-V / Cluster",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "Failover cluster node is not Up",
+      "condition": {
+        "type": "anyRowFieldNotEquals",
+        "dataset": "ClusterNodes",
+        "field": "State",
+        "value": "Up"
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "Cluster node '{Name}' is {State}",
+      "whyItMattersForScoping": "A cluster running with a node down has lost redundancy and possibly quorum; migrating or patching it now risks an outage, and the root cause should be understood first.",
+      "potentialProjectImpact": [
+        "Downtime",
+        "Rollback Planning"
+      ],
+      "suggestedValidationQuestion": "Why is cluster node '{Name}' not Up, and is the cluster healthy enough to change?",
+      "sourceModule": "Cluster",
+      "sourceDataset": "ClusterNodes"
+    },
+    {
+      "id": "RULE-CL-003",
+      "enabled": true,
+      "category": "Hyper-V / Cluster",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Failover cluster network is not fully Up",
+      "condition": {
+        "type": "anyRowFieldNotEquals",
+        "dataset": "ClusterNetworks",
+        "field": "State",
+        "value": "Up"
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "Cluster network '{Name}' ({Address}) is {State}",
+      "whyItMattersForScoping": "A partitioned or down cluster network means nodes cannot reach each other on that path, which reduces failover resilience and often signals a misconfigured virtual switch or VLAN that will follow the workload to the new platform.",
+      "potentialProjectImpact": [
+        "Architecture Decision",
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Is cluster network '{Name}' intentionally isolated, or is it a fault to fix before the migration?",
+      "sourceModule": "Cluster",
+      "sourceDataset": "ClusterNetworks"
+    },
+    {
+      "id": "RULE-HV-006",
+      "enabled": true,
+      "category": "Hyper-V / Cluster",
+      "severity": "Low",
+      "confidence": "Confirmed",
+      "title": "Hyper-V VM configuration version is older than the host default",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "HyperVVMs",
+        "field": "VersionBehindHostDefault",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "VM '{Name}' is configuration version {Version}, below this host's default",
+      "whyItMattersForScoping": "Old-version VMs lack current features and may need a one-way version upgrade after moving to a newer host; the upgrade also blocks moving the VM back to an older host.",
+      "potentialProjectImpact": [
+        "Cutover Complexity",
+        "Rollback Planning"
+      ],
+      "suggestedValidationQuestion": "Is VM '{Name}' still needed, and can its configuration version be upgraded after the move (which is not reversible)?",
+      "sourceModule": "HyperV",
+      "sourceDataset": "HyperVVMs"
+    },
+    {
+      "id": "RULE-HV-007",
+      "enabled": true,
+      "category": "Hyper-V / Cluster",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Hyper-V differencing or checkpoint disk chain in use",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "HyperVDisks",
+        "field": "IsDifferencing",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "VMName",
+      "evidenceTemplate": "VM '{VMName}' runs from a differencing/checkpoint disk ({Path}, parent: {ParentPath})",
+      "whyItMattersForScoping": "A disk chain must be moved with its whole parent chain or merged first; a long chain slows the copy and a broken parent link makes the VM unrecoverable.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Downtime",
+        "Rollback Planning"
+      ],
+      "suggestedValidationQuestion": "Can the checkpoints on '{VMName}' be merged before the migration, and is the parent disk backed up?",
+      "sourceModule": "HyperV",
+      "sourceDataset": "HyperVDisks"
+    },
+    {
+      "id": "RULE-SQL-007",
+      "enabled": true,
+      "category": "Database",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "SQL user database has no recorded full backup",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SqlDatabases",
+        "field": "NoFullBackup",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "Database '{Name}' on {Instance} ({RecoveryModel} recovery, {SizeGB} GB) has no full backup in msdb",
+      "whyItMattersForScoping": "A migration or decommission needs a restorable copy. No recorded full backup means either backups run outside SQL Server's own history (third-party agent) or there is no rollback path.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Downtime",
+        "Rollback Planning"
+      ],
+      "suggestedValidationQuestion": "How is database '{Name}' backed up, and when was the last successful restore test?",
+      "sourceModule": "SQL",
+      "sourceDataset": "SqlDatabases"
+    },
+    {
+      "id": "RULE-SQL-008",
+      "enabled": true,
+      "category": "Database",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "SQL Server xp_cmdshell is enabled",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SqlInstances",
+        "field": "XpCmdShellEnabled",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "InstanceName",
+      "evidenceTemplate": "xp_cmdshell is enabled on {InstanceName}",
+      "whyItMattersForScoping": "xp_cmdshell means SQL jobs or applications shell out to the operating system, so hidden file-path, tooling and account dependencies live inside the database and will not show in any service or task list.",
+      "potentialProjectImpact": [
+        "Cutover Complexity",
+        "Security/Compliance",
+        "Data Migration"
+      ],
+      "suggestedValidationQuestion": "Which jobs or stored procedures on {InstanceName} call xp_cmdshell, and what do they run?",
+      "sourceModule": "SQL",
+      "sourceDataset": "SqlInstances"
+    },
+    {
+      "id": "RULE-SQL-009",
+      "enabled": true,
+      "category": "Database",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "SQL Server Enterprise edition detected",
+      "condition": {
+        "type": "anyRowFieldMatches",
+        "dataset": "SqlInstances",
+        "field": "Edition",
+        "pattern": "(?i)Enterprise"
+      },
+      "emitPerRow": true,
+      "evidenceField": "InstanceName",
+      "evidenceTemplate": "SQL instance '{InstanceName}' is Enterprise edition on a host with {HostLogicalProcessors} logical processor(s)",
+      "whyItMattersForScoping": "Enterprise edition is licensed per physical/logical core, not per server, and is a major cost driver of any migration or refresh. The core count on the current host is the starting point for re-licensing the target.",
+      "potentialProjectImpact": [
+        "Licensing",
+        "Architecture Decision",
+        "Data Migration"
+      ],
+      "suggestedValidationQuestion": "Is the per-core licensing for '{InstanceName}' documented, and does the target host's core count change what needs to be purchased?",
+      "sourceModule": "SQL",
+      "sourceDataset": "SqlInstances"
+    },
+    {
+      "id": "RULE-IIS-003",
+      "enabled": true,
+      "category": "Web",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "IIS application pool uses a legacy .NET runtime",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "IisAppPools",
+        "field": "IsLegacyDotNet",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "App pool '{Name}' targets legacy runtime {ManagedRuntimeVersion}",
+      "whyItMattersForScoping": "Legacy .NET app pools (v1.1/v2.0) may not be installable on a modern target OS without extra roles/features and application validation.",
+      "potentialProjectImpact": [
+        "Architecture Decision",
+        "Labor"
+      ],
+      "suggestedValidationQuestion": "Can the application in app pool '{Name}' run on a supported .NET runtime on the target server?",
+      "complianceRelevance": [
+        "Unsupported OS/software risk"
+      ],
+      "sourceModule": "IIS",
+      "sourceDataset": "IisAppPools"
+    },
+    {
+      "id": "RULE-FS-003",
+      "enabled": true,
+      "category": "File / Print",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Large file-share data volume",
+      "condition": {
+        "type": "anyRowFieldGreaterThan",
+        "dataset": "NtfsAclSummary",
+        "field": "TotalSizeGB",
+        "value": 500
+      },
+      "emitPerRow": true,
+      "evidenceField": "Share",
+      "evidenceTemplate": "Share '{Share}' holds ~{TotalSizeGB} GB across {FileCount} files",
+      "whyItMattersForScoping": "Large data volumes drive migration window length, staging requirements, and target storage sizing.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Architecture Decision",
+        "Downtime"
+      ],
+      "suggestedValidationQuestion": "What migration window and method are acceptable for the ~{TotalSizeGB} GB on share '{Share}'?",
+      "sourceModule": "FileShares",
+      "sourceDataset": "NtfsAclSummary"
+    },
+    {
+      "id": "RULE-PRINT-002",
+      "enabled": true,
+      "category": "File / Print",
+      "severity": "Medium",
+      "confidence": "Likely",
+      "title": "Label/specialty printer detected",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "Printers",
+        "field": "IsLabelPrinter",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "Label/specialty printer '{Name}' (driver {DriverName})",
+      "whyItMattersForScoping": "Label printers often tie to line-of-business apps (shipping, manufacturing) and specific drivers; validation is needed so label printing keeps working after migration.",
+      "potentialProjectImpact": [
+        "Cutover Complexity",
+        "Vendor Dependency",
+        "Client Coordination"
+      ],
+      "suggestedValidationQuestion": "Which application prints to '{Name}', and who validates label printing after migration?",
+      "sourceModule": "PrintServer",
+      "sourceDataset": "Printers"
+    },
+    {
+      "id": "RULE-DFS-001",
+      "enabled": true,
+      "category": "File / Print",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "DFS namespace/replication detected",
+      "condition": {
+        "type": "datasetNotEmpty",
+        "dataset": "DfsDiscovery"
+      },
+      "whyItMattersForScoping": "DFS namespaces/replication mean data may be referenced by a namespace path and mirrored elsewhere; file migration must be carefully sequenced.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Cutover Complexity",
+        "Architecture Decision"
+      ],
+      "suggestedValidationQuestion": "How are DFS namespaces/replication configured, and how does that affect the file migration sequence?",
+      "sourceModule": "FileShares",
+      "sourceDataset": "DfsDiscovery"
+    },
+    {
+      "id": "RULE-SEC-TLS10",
+      "enabled": true,
+      "category": "Security",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "TLS 1.0 is enabled",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SecurityPosture",
+        "field": "Tls10Enabled",
+        "value": true
+      },
+      "whyItMattersForScoping": "TLS 1.0 is deprecated. Its presence indicates legacy clients/apps that may block hardening and represents a security/compliance concern.",
+      "potentialProjectImpact": [
+        "Security/Compliance",
+        "Architecture Decision"
+      ],
+      "suggestedValidationQuestion": "Which applications still require TLS 1.0, and can they be remediated?",
+      "complianceRelevance": [
+        "Insecure protocol review",
+        "Encryption validation"
+      ],
+      "sourceModule": "SecurityPosture",
+      "sourceDataset": "SecurityPosture",
+      "projectTypeEmphasis": [
+        "CMMCReadiness"
+      ]
+    },
+    {
+      "id": "RULE-SEC-WINRM",
+      "enabled": true,
+      "category": "Security",
+      "severity": "Low",
+      "confidence": "Confirmed",
+      "title": "WinRM is enabled",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SecurityPosture",
+        "field": "WinRmEnabled",
+        "value": true
+      },
+      "whyItMattersForScoping": "WinRM remote management should be reviewed for exposure and, if used by automation, reproduced on the target server.",
+      "potentialProjectImpact": [
+        "Security/Compliance"
+      ],
+      "suggestedValidationQuestion": "Is WinRM intentionally enabled and appropriately restricted?",
+      "complianceRelevance": [
+        "External access validation"
+      ],
+      "sourceModule": "SecurityPosture",
+      "sourceDataset": "SecurityPosture",
+      "projectTypeEmphasis": [
+        "CMMCReadiness"
+      ]
+    },
+    {
+      "id": "RULE-SEC-UAC",
+      "enabled": true,
+      "category": "Security",
+      "severity": "Medium",
+      "confidence": "Likely",
+      "title": "User Account Control (UAC) is disabled",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SecurityPosture",
+        "field": "UacEnabled",
+        "value": false
+      },
+      "whyItMattersForScoping": "Disabled UAC weakens privilege separation and is a common security-posture finding to remediate.",
+      "potentialProjectImpact": [
+        "Security/Compliance"
+      ],
+      "suggestedValidationQuestion": "Why is UAC disabled, and can it be re-enabled?",
+      "complianceRelevance": [
+        "Privileged access review"
+      ],
+      "sourceModule": "SecurityPosture",
+      "sourceDataset": "SecurityPosture",
+      "projectTypeEmphasis": [
+        "CMMCReadiness"
+      ]
+    },
+    {
+      "id": "RULE-SEC-LAPS",
+      "enabled": true,
+      "category": "Security",
+      "severity": "Low",
+      "confidence": "Possible",
+      "title": "LAPS not detected",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SecurityPosture",
+        "field": "LapsDetected",
+        "value": false
+      },
+      "whyItMattersForScoping": "No LAPS/Windows LAPS was detected; local administrator password management should be validated for security/compliance.",
+      "potentialProjectImpact": [
+        "Security/Compliance"
+      ],
+      "suggestedValidationQuestion": "How are local administrator passwords managed, since LAPS was not detected?",
+      "complianceRelevance": [
+        "Local administrator review"
+      ],
+      "sourceModule": "SecurityPosture",
+      "sourceDataset": "SecurityPosture",
+      "projectTypeEmphasis": [
+        "CMMCReadiness"
+      ]
+    },
+    {
+      "id": "RULE-SEC-BITLOCKER",
+      "enabled": true,
+      "category": "Security",
+      "severity": "Low",
+      "confidence": "Possible",
+      "title": "BitLocker not detected on any volume",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SecurityPosture",
+        "field": "BitLockerAnyProtected",
+        "value": false
+      },
+      "whyItMattersForScoping": "No BitLocker-protected volume was detected; encryption-at-rest should be validated where the data sensitivity or compliance scope requires it.",
+      "potentialProjectImpact": [
+        "Security/Compliance"
+      ],
+      "suggestedValidationQuestion": "Is encryption-at-rest required for this server's data, and how is it provided?",
+      "complianceRelevance": [
+        "Encryption validation"
+      ],
+      "sourceModule": "SecurityPosture",
+      "sourceDataset": "SecurityPosture",
+      "projectTypeEmphasis": [
+        "CMMCReadiness"
+      ]
+    },
+    {
+      "id": "RULE-SEC-TLS11",
+      "enabled": true,
+      "category": "Security",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "TLS 1.1 is enabled",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SecurityPosture",
+        "field": "Tls11Enabled",
+        "value": true
+      },
+      "whyItMattersForScoping": "TLS 1.1 is deprecated alongside TLS 1.0. Its presence indicates legacy clients/apps that may block hardening and represents a security/compliance concern.",
+      "potentialProjectImpact": [
+        "Security/Compliance",
+        "Architecture Decision"
+      ],
+      "suggestedValidationQuestion": "Which applications still require TLS 1.1, and can they be remediated?",
+      "complianceRelevance": [
+        "Insecure protocol review",
+        "Encryption validation"
+      ],
+      "sourceModule": "SecurityPosture",
+      "sourceDataset": "SecurityPosture",
+      "projectTypeEmphasis": [
+        "CMMCReadiness"
+      ]
+    },
+    {
+      "id": "RULE-SEC-GUEST",
+      "enabled": true,
+      "category": "Security",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Built-in Guest account is enabled",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SecurityPosture",
+        "field": "GuestAccountEnabled",
+        "value": true
+      },
+      "whyItMattersForScoping": "An enabled Guest account is an unauthenticated or weakly-authenticated access path that should not normally exist on a server.",
+      "potentialProjectImpact": [
+        "Security/Compliance"
+      ],
+      "suggestedValidationQuestion": "Is the built-in Guest account intentionally enabled here, and for what purpose?",
+      "complianceRelevance": [
+        "Privileged access review"
+      ],
+      "sourceModule": "SecurityPosture",
+      "sourceDataset": "SecurityPosture",
+      "projectTypeEmphasis": [
+        "CMMCReadiness"
+      ]
+    },
+    {
+      "id": "RULE-SEC-SMBSIGN",
+      "enabled": true,
+      "category": "Security",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "SMB server signing is not required",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SecurityPosture",
+        "field": "SmbServerSigningRequired",
+        "value": false
+      },
+      "whyItMattersForScoping": "Without required SMB signing, this server's file/print traffic is vulnerable to relay and tampering attacks; this is one of the most common real-world Active Directory environment findings.",
+      "potentialProjectImpact": [
+        "Security/Compliance"
+      ],
+      "suggestedValidationQuestion": "Can SMB signing be required on this server without breaking older clients or appliances that connect to it?",
+      "complianceRelevance": [
+        "Insecure protocol review"
+      ],
+      "sourceModule": "SecurityPosture",
+      "sourceDataset": "SecurityPosture",
+      "projectTypeEmphasis": [
+        "CMMCReadiness"
+      ]
+    },
+    {
+      "id": "RULE-SEC-NTLM",
+      "enabled": true,
+      "category": "Security",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Legacy NTLM/LM authentication is explicitly permitted",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SecurityPosture",
+        "field": "NtlmLegacyCompatibilityAllowed",
+        "value": true
+      },
+      "whyItMattersForScoping": "LmCompatibilityLevel is explicitly set below 3, permitting LM or NTLMv1 - both long-deprecated and crackable/relayable. Only fires when the policy is explicitly configured this way, not merely absent.",
+      "potentialProjectImpact": [
+        "Security/Compliance"
+      ],
+      "suggestedValidationQuestion": "What legacy client or application requires LM/NTLMv1, and can NTLM be restricted to NTLMv2-only instead?",
+      "complianceRelevance": [
+        "Insecure protocol review"
+      ],
+      "sourceModule": "SecurityPosture",
+      "sourceDataset": "SecurityPosture",
+      "projectTypeEmphasis": [
+        "CMMCReadiness"
+      ]
+    },
+    {
+      "id": "RULE-SEC-PWNOEXPIRE",
+      "enabled": true,
+      "category": "Security",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Enabled local account(s) have a non-expiring password",
+      "condition": {
+        "type": "datasetNotEmpty",
+        "dataset": "LocalAccountsWithNonExpiringPasswords"
+      },
+      "whyItMattersForScoping": "An enabled local account whose password never expires has an unbounded credential lifetime, increasing the value of that credential if ever compromised.",
+      "potentialProjectImpact": [
+        "Security/Compliance"
+      ],
+      "suggestedValidationQuestion": "See the LocalAccountsWithNonExpiringPasswords export for the specific account(s) - is a non-expiring password intentional for each (e.g. a managed service account), or should they rotate on a schedule?",
+      "complianceRelevance": [
+        "Privileged access review"
+      ],
+      "sourceModule": "SecurityPosture",
+      "sourceDataset": "LocalAccountsWithNonExpiringPasswords",
+      "projectTypeEmphasis": [
+        "CMMCReadiness"
+      ]
+    },
+    {
+      "id": "RULE-SEC-USERRIGHTS",
+      "enabled": true,
+      "category": "Security",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "A sensitive user right is granted beyond the expected built-in accounts",
+      "condition": {
+        "type": "datasetNotEmpty",
+        "dataset": "SensitiveUserRightsGrants"
+      },
+      "whyItMattersForScoping": "Rights like SeDebugPrivilege or SeTakeOwnershipPrivilege granted to an account beyond the expected built-in groups are a common local-privilege-escalation and credential-theft vector.",
+      "potentialProjectImpact": [
+        "Security/Compliance"
+      ],
+      "suggestedValidationQuestion": "See the SensitiveUserRightsGrants export for the specific right(s) and account(s) - why does that account need this right, and can it be removed?",
+      "complianceRelevance": [
+        "Privileged access review"
+      ],
+      "sourceModule": "SecurityPosture",
+      "sourceDataset": "SensitiveUserRightsGrants",
+      "projectTypeEmphasis": [
+        "CMMCReadiness"
+      ]
+    },
+    {
+      "id": "RULE-AUDIT-GAPS",
+      "enabled": true,
+      "category": "Security",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "Critical security audit subcategories are not being logged",
+      "condition": {
+        "type": "datasetNotEmpty",
+        "dataset": "AuditPolicyGaps"
+      },
+      "whyItMattersForScoping": "One or more foundational audit subcategories (logon activity, account/group management, audit policy change) are set to No Auditing, meaning key security-relevant events on this server are not being recorded at all.",
+      "potentialProjectImpact": [
+        "Security/Compliance"
+      ],
+      "suggestedValidationQuestion": "See the AuditPolicyGaps export for the specific subcategory(ies) - is a SIEM or GPO-managed audit baseline expected to be enforcing this instead of local policy?",
+      "complianceRelevance": [
+        "Logging/audit visibility"
+      ],
+      "sourceModule": "EventLogs",
+      "sourceDataset": "AuditPolicyGaps",
+      "projectTypeEmphasis": [
+        "CMMCReadiness"
+      ]
+    },
+    {
+      "id": "RULE-AD-LDAPSIGN",
+      "enabled": true,
+      "category": "Identity / AD / DC",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "Domain Controller does not require LDAP server signing",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "DomainContext",
+        "field": "LdapSigningNotEnforced",
+        "value": true
+      },
+      "whyItMattersForScoping": "Without required LDAP signing, LDAP binds to this DC can be relayed or tampered with in transit - one of the most common real-world Active Directory hardening gaps (Microsoft KB4520412).",
+      "potentialProjectImpact": [
+        "Security/Compliance"
+      ],
+      "suggestedValidationQuestion": "Can LDAPServerIntegrity be set to require signing on this DC without breaking an application that binds over unsigned LDAP?",
+      "complianceRelevance": [
+        "Insecure protocol review",
+        "Encryption validation"
+      ],
+      "sourceModule": "ActiveDirectory",
+      "sourceDataset": "DomainContext",
+      "projectTypeEmphasis": [
+        "CMMCReadiness"
+      ]
+    },
+    {
+      "id": "RULE-AD-LDAPCHANNELBIND",
+      "enabled": true,
+      "category": "Identity / AD / DC",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Domain Controller does not enforce LDAP channel binding",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "DomainContext",
+        "field": "LdapChannelBindingNotEnforced",
+        "value": true
+      },
+      "whyItMattersForScoping": "Without LDAP channel binding, an attacker-in-the-middle can relay LDAPS authentication even though the channel itself is encrypted (Microsoft's 2023 LDAP channel binding advisory).",
+      "potentialProjectImpact": [
+        "Security/Compliance"
+      ],
+      "suggestedValidationQuestion": "Can LdapEnforceChannelBinding be set on this DC without breaking an application that authenticates over LDAPS?",
+      "complianceRelevance": [
+        "Insecure protocol review"
+      ],
+      "sourceModule": "ActiveDirectory",
+      "sourceDataset": "DomainContext",
+      "projectTypeEmphasis": [
+        "CMMCReadiness"
+      ]
+    },
+    {
+      "id": "RULE-CERT-003",
+      "enabled": true,
+      "category": "Certificates",
+      "severity": "Low",
+      "confidence": "Confirmed",
+      "title": "Self-signed certificate present",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "Certificates",
+        "field": "SelfSigned",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "Subject",
+      "evidenceTemplate": "Self-signed certificate '{Subject}' (thumbprint {Thumbprint})",
+      "whyItMattersForScoping": "Self-signed certificates in use may need to be reissued/replaced and can indicate services relying on non-trusted certificates.",
+      "potentialProjectImpact": [
+        "Cutover Complexity",
+        "Security/Compliance"
+      ],
+      "suggestedValidationQuestion": "Is the self-signed certificate '{Subject}' in production use, and should it be replaced with a trusted certificate?",
+      "complianceRelevance": [
+        "Certificate/PKI validation"
+      ],
+      "sourceModule": "Certificates",
+      "sourceDataset": "Certificates"
+    },
+    {
+      "id": "RULE-BAK-003",
+      "enabled": true,
+      "category": "Backup / DR",
+      "severity": "Medium",
+      "confidence": "Likely",
+      "title": "VSS writer not in a stable state",
+      "condition": {
+        "type": "anyRowFieldMatches",
+        "dataset": "VssWriters",
+        "field": "State",
+        "pattern": "(?i)fail|error|unstable|retryable|timed"
+      },
+      "emitPerRow": true,
+      "evidenceField": "Writer",
+      "evidenceTemplate": "VSS writer '{Writer}' state: {State} (last error: {LastError})",
+      "whyItMattersForScoping": "Unstable VSS writers can cause application-consistent backups to fail, undermining rollback capability before a migration/decommission.",
+      "potentialProjectImpact": [
+        "Rollback Planning"
+      ],
+      "suggestedValidationQuestion": "Why is VSS writer '{Writer}' unstable, and does it affect backup integrity?",
+      "complianceRelevance": [
+        "Backup/recovery validation"
+      ],
+      "sourceModule": "BackupDR",
+      "sourceDataset": "VssWriters"
+    },
+    {
+      "id": "RULE-HV-003",
+      "enabled": true,
+      "category": "Hyper-V / Cluster",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Hyper-V pass-through disk in use",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "HyperVDisks",
+        "field": "PassThrough",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "VMName",
+      "evidenceTemplate": "VM '{VMName}' uses a pass-through physical disk",
+      "whyItMattersForScoping": "Pass-through disks bypass VHDX and complicate backup, live migration, and host refresh; they require special handling.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Architecture Decision",
+        "Rollback Planning"
+      ],
+      "suggestedValidationQuestion": "Why does VM '{VMName}' use a pass-through disk, and can it be converted to a virtual disk?",
+      "sourceModule": "HyperV",
+      "sourceDataset": "HyperVDisks"
+    },
+    {
+      "id": "RULE-HV-004",
+      "enabled": true,
+      "category": "Hyper-V / Cluster",
+      "severity": "Low",
+      "confidence": "Confirmed",
+      "title": "Generation 1 (legacy) VM present",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "HyperVVMs",
+        "field": "Generation",
+        "value": 1
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "VM '{Name}' is Generation 1 (legacy BIOS)",
+      "whyItMattersForScoping": "Generation 1 VMs use legacy BIOS boot; conversion or special handling may be needed depending on the target platform.",
+      "potentialProjectImpact": [
+        "Architecture Decision"
+      ],
+      "suggestedValidationQuestion": "Does VM '{Name}' need to remain Generation 1, or can it be modernized on the target host?",
+      "sourceModule": "HyperV",
+      "sourceDataset": "HyperVVMs"
+    },
+    {
+      "id": "RULE-HV-005",
+      "enabled": true,
+      "category": "Hyper-V / Cluster",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Hyper-V replication configured",
+      "condition": {
+        "type": "datasetNotEmpty",
+        "dataset": "HyperVReplication"
+      },
+      "emitPerRow": true,
+      "evidenceField": "VMName",
+      "evidenceTemplate": "VM '{VMName}' replication state {State}, health {Health}",
+      "whyItMattersForScoping": "Hyper-V Replica relationships must be reconfigured (and possibly reseeded) as part of a host refresh/migration.",
+      "potentialProjectImpact": [
+        "Rollback Planning",
+        "Cutover Complexity",
+        "Architecture Decision"
+      ],
+      "suggestedValidationQuestion": "How should replication for '{VMName}' be handled during the migration?",
+      "sourceModule": "HyperV",
+      "sourceDataset": "HyperVReplication"
+    },
+    {
+      "id": "RULE-LIC-RDS",
+      "enabled": true,
+      "category": "Licensing",
+      "severity": "Medium",
+      "confidence": "Likely",
+      "title": "RDS licensing dependency indicator",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "Licensing",
+        "field": "Type",
+        "value": "RDS"
+      },
+      "emitPerRow": true,
+      "evidenceField": "Item",
+      "evidenceTemplate": "RDS licensing indicator: {Item} ({Detail})",
+      "whyItMattersForScoping": "RDS CAL licensing must be accounted for when moving session-host/licensing roles; CAL type and license server require validation.",
+      "potentialProjectImpact": [
+        "Licensing",
+        "Client Coordination"
+      ],
+      "suggestedValidationQuestion": "What RDS CAL type is in use and where is the license server?",
+      "sourceModule": "Licensing",
+      "sourceDataset": "Licensing"
+    },
+    {
+      "id": "RULE-PERF-MEM",
+      "enabled": true,
+      "category": "Performance",
+      "severity": "Medium",
+      "confidence": "Possible",
+      "title": "High memory pressure at snapshot",
+      "condition": {
+        "type": "anyRowFieldGreaterThan",
+        "dataset": "PerformanceSnapshot",
+        "field": "MemoryUsedPercent",
+        "value": 90
+      },
+      "whyItMattersForScoping": "A point-in-time high memory reading may indicate undersizing; it is a snapshot, not trend data, and should be validated for target sizing.",
+      "potentialProjectImpact": [
+        "Architecture Decision"
+      ],
+      "suggestedValidationQuestion": "Is high memory usage typical for this server, and should target sizing increase RAM?",
+      "sourceModule": "PerformanceSnapshot",
+      "sourceDataset": "PerformanceSnapshot"
+    },
+    {
+      "id": "RULE-PATCH-001",
+      "enabled": true,
+      "category": "Operating System",
+      "severity": "High",
+      "confidence": "Likely",
+      "title": "Server has not been patched recently",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "UpdatePosture",
+        "field": "PatchingLooksStale",
+        "value": true
+      },
+      "whyItMattersForScoping": "A long patch gap is both a security exposure and a schedule risk: catching up can require several reboots and a maintenance window that has not been budgeted for.",
+      "potentialProjectImpact": [
+        "Security/Compliance",
+        "Labor",
+        "Downtime"
+      ],
+      "suggestedValidationQuestion": "When was this server last patched, which tool patches it, and what maintenance window is available to catch it up?",
+      "complianceRelevance": [
+        "Unsupported OS/software risk"
+      ],
+      "sourceModule": "WindowsUpdate",
+      "sourceDataset": "UpdatePosture",
+      "projectTypeEmphasis": [
+        "CMMCReadiness",
+        "ServerRefresh"
+      ]
+    },
+    {
+      "id": "RULE-PATCH-002",
+      "enabled": true,
+      "category": "Operating System",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Automatic updates are disabled by policy",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "UpdatePosture",
+        "field": "AutomaticUpdatesDisabled",
+        "value": true
+      },
+      "whyItMattersForScoping": "Updates are suppressed deliberately here. That is often correct for an application server, but it means patching depends entirely on a process outside the server that must be identified.",
+      "potentialProjectImpact": [
+        "Security/Compliance",
+        "Labor"
+      ],
+      "suggestedValidationQuestion": "Automatic updates are disabled by policy. What patches this server instead, and who approves the patches?",
+      "complianceRelevance": [
+        "Unsupported OS/software risk"
+      ],
+      "sourceModule": "WindowsUpdate",
+      "sourceDataset": "UpdatePosture",
+      "projectTypeEmphasis": [
+        "CMMCReadiness"
+      ]
+    },
+    {
+      "id": "RULE-PATCH-003",
+      "enabled": true,
+      "category": "Operating System",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Windows Update agent service is disabled",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "UpdatePosture",
+        "field": "UpdateAgentDisabled",
+        "value": true
+      },
+      "whyItMattersForScoping": "With the update agent disabled the server cannot patch itself even on demand, and some third-party patching tools depend on that same agent.",
+      "potentialProjectImpact": [
+        "Security/Compliance",
+        "Labor"
+      ],
+      "suggestedValidationQuestion": "Why is the Windows Update service disabled, and can it be re-enabled during the project?",
+      "sourceModule": "WindowsUpdate",
+      "sourceDataset": "UpdatePosture",
+      "projectTypeEmphasis": [
+        "CMMCReadiness"
+      ]
+    },
+    {
+      "id": "RULE-PATCH-004",
+      "enabled": true,
+      "category": "Operating System",
+      "severity": "Low",
+      "confidence": "Unknown",
+      "title": "No patch history could be read from this server",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "UpdatePosture",
+        "field": "NoPatchHistoryAvailable",
+        "value": true
+      },
+      "whyItMattersForScoping": "Patch currency is unknown rather than bad. It still has to be established before the server can be assessed or migrated with confidence.",
+      "potentialProjectImpact": [
+        "Labor"
+      ],
+      "suggestedValidationQuestion": "Patch history could not be read locally. Can the patching tool's own report for this server be provided?",
+      "sourceModule": "WindowsUpdate",
+      "sourceDataset": "UpdatePosture"
+    },
+    {
+      "id": "RULE-WSUS-001",
+      "enabled": true,
+      "category": "Operating System",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "Server hosts the WSUS update server role",
+      "condition": {
+        "type": "datasetNotEmpty",
+        "dataset": "WsusServerRole"
+      },
+      "whyItMattersForScoping": "Every client pointed at this WSUS server stops receiving updates if it is retired, and the failure is silent. The content directory is also frequently the largest thing on the disk.",
+      "potentialProjectImpact": [
+        "Architecture Decision",
+        "Cutover Complexity",
+        "Client Coordination"
+      ],
+      "suggestedValidationQuestion": "Which clients are pointed at this WSUS server, and where will they get updates after the change?",
+      "sourceModule": "WindowsUpdate",
+      "sourceDataset": "WsusServerRole",
+      "projectTypeEmphasis": [
+        "Decommission",
+        "ServerRefresh"
+      ]
+    },
+    {
+      "id": "RULE-HYBRID-001",
+      "enabled": true,
+      "category": "Identity / AD / DC",
+      "severity": "High",
+      "confidence": "Likely",
+      "title": "Hybrid identity / cloud connector component detected",
+      "condition": {
+        "type": "datasetNotEmpty",
+        "dataset": "HybridIdentity"
+      },
+      "emitPerRow": true,
+      "evidenceField": "Component",
+      "confidenceField": "Confidence",
+      "evidenceTemplate": "{Component} detected ({Role}) - evidence: {Evidence}",
+      "whyItMattersForScoping": "Components such as Entra Connect, AD FS and cloud connectors hold tenant-wide roles that usually exist on exactly one server. Turning one off stops a cloud-side service with no local error.",
+      "potentialProjectImpact": [
+        "Architecture Decision",
+        "Cutover Complexity",
+        "Client Coordination",
+        "Rollback Planning"
+      ],
+      "suggestedValidationQuestion": "{ValidationQuestion}",
+      "complianceRelevance": [
+        "Privileged access review"
+      ],
+      "sourceModule": "AzureHybrid",
+      "sourceDataset": "HybridIdentity",
+      "projectTypeEmphasis": [
+        "Decommission",
+        "ServerRefresh",
+        "AzureMigration"
+      ]
+    },
+    {
+      "id": "RULE-TIME-001",
+      "enabled": true,
+      "category": "Identity / AD / DC",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "Domain member is not synchronising time with the domain hierarchy",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "TimeSync",
+        "field": "BrokenDomainTimeHierarchy",
+        "value": true
+      },
+      "whyItMattersForScoping": "A domain member running off its local clock will drift, and Kerberos rejects tickets beyond a five-minute skew. The symptom presents as authentication failure, which sends people hunting in the wrong place.",
+      "potentialProjectImpact": [
+        "Security/Compliance",
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Why is this server using its local clock rather than the domain time hierarchy, and can that be corrected before the project?",
+      "sourceModule": "TimeSync",
+      "sourceDataset": "TimeSync"
+    },
+    {
+      "id": "RULE-TIME-002",
+      "enabled": true,
+      "category": "Identity / AD / DC",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "Clock offset exceeds the Kerberos tolerance",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "TimeSync",
+        "field": "OffsetExceedsKerberosSkew",
+        "value": true
+      },
+      "whyItMattersForScoping": "The measured offset is already beyond the default five-minute Kerberos skew, so authentication failures are expected rather than hypothetical.",
+      "potentialProjectImpact": [
+        "Security/Compliance",
+        "Downtime"
+      ],
+      "suggestedValidationQuestion": "The clock on this server is significantly out. Can time synchronisation be corrected before any other work begins?",
+      "sourceModule": "TimeSync",
+      "sourceDataset": "TimeSync"
+    },
+    {
+      "id": "RULE-TIME-003",
+      "enabled": true,
+      "category": "Identity / AD / DC",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Server advertises itself as an authoritative time source",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "TimeSync",
+        "field": "IsAuthoritativeTimeSource",
+        "value": true
+      },
+      "whyItMattersForScoping": "Other machines may take their time from this server. Retiring it without moving the role drifts every follower, and the resulting authentication failures will not point back here.",
+      "potentialProjectImpact": [
+        "Architecture Decision",
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Which systems take their time from this server, and where will they take it from afterwards?",
+      "sourceModule": "TimeSync",
+      "sourceDataset": "TimeSync",
+      "projectTypeEmphasis": [
+        "Decommission"
+      ]
+    },
+    {
+      "id": "RULE-USER-001",
+      "enabled": true,
+      "category": "File / Print",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "User-mapped network drive found on this server",
+      "condition": {
+        "type": "datasetNotEmpty",
+        "dataset": "MappedDrives"
+      },
+      "emitPerRow": true,
+      "evidenceField": "RemotePath",
+      "evidenceTemplate": "Drive {DriveLetter} mapped to {RemotePath}",
+      "whyItMattersForScoping": "Mapped drives are hardcoded dependencies created by people rather than by configuration management, and they are invisible to every machine-context collector. A server rename breaks them silently.",
+      "potentialProjectImpact": [
+        "Cutover Complexity",
+        "Data Migration"
+      ],
+      "suggestedValidationQuestion": "Is the path behind {DriveLetter} referenced by server name, and does that name survive the migration?",
+      "sourceModule": "UserProfiles",
+      "sourceDataset": "MappedDrives"
+    },
+    {
+      "id": "RULE-USER-002",
+      "enabled": true,
+      "category": "Database",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Per-user ODBC DSN found (easily missed database dependency)",
+      "condition": {
+        "type": "datasetNotEmpty",
+        "dataset": "UserOdbcDsns"
+      },
+      "emitPerRow": true,
+      "evidenceField": "DsnName",
+      "evidenceTemplate": "User DSN '{DsnName}' -> server '{Server}' database '{Database}' ({Bitness}-bit, account {Account})",
+      "whyItMattersForScoping": "Per-user DSNs are where legacy line-of-business applications keep their database target. They are not visible in the system DSN list and are routinely missed until an application fails after cutover.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Which application uses the user DSN '{DsnName}', and does its target change after migration?",
+      "sourceModule": "UserProfiles",
+      "sourceDataset": "UserOdbcDsns"
+    },
+    {
+      "id": "RULE-USER-003",
+      "enabled": true,
+      "category": "File / Print",
+      "severity": "Low",
+      "confidence": "Confirmed",
+      "title": "Roaming profile path configured",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "UserProfiles",
+        "field": "IsRoaming",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "Account",
+      "evidenceTemplate": "Profile for {Account} roams to {RoamingPath}",
+      "whyItMattersForScoping": "Roaming profiles depend on a share that must survive the change, and profile data is migration payload that is easy to leave out of a sizing estimate.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Does the roaming profile share referenced here survive the migration?",
+      "sourceModule": "UserProfiles",
+      "sourceDataset": "UserProfiles"
+    }
+  ]
+}

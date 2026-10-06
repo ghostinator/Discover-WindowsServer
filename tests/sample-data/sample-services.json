@@ -1,0 +1,26 @@
+[
+  {
+    "Name": "AcmeAppSvc",
+    "DisplayName": "Acme Application Service",
+    "Status": "Running",
+    "StartMode": "Auto",
+    "StartName": "DOMAIN\\svc-acme",
+    "PathName": "C:\\Program Files\\Acme\\AcmeApp.exe",
+    "Description": "Acme line-of-business application service",
+    "PathExists": true,
+    "UnquotedPathWithSpaces": false,
+    "IsNonMicrosoftAutoStart": true
+  },
+  {
+    "Name": "LegacyReport",
+    "DisplayName": "Legacy Report Runner",
+    "Status": "Running",
+    "StartMode": "Auto",
+    "StartName": "LocalSystem",
+    "PathName": "C:\\Legacy Tools\\report.exe -daily",
+    "Description": "",
+    "PathExists": false,
+    "UnquotedPathWithSpaces": true,
+    "IsNonMicrosoftAutoStart": true
+  }
+]

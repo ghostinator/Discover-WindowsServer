@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "1.1.0",
+  "mode": "Fast",
+  "description": "Fast mode is for quick scoping. It collects enough to identify the server's primary role, obvious dependencies, major risks, and follow-up questions. It avoids recursive share crawling, large config scanning (unless explicitly enabled), user profile / recycle bin / Windows folder scanning, full event log export, deep SQL enumeration, expensive folder-size calculations, and large ACL enumeration. Every key in parameterDefaults is read at runtime and overrides default.discovery.json's 'defaults'; the command line overrides both.",
+  "parameterDefaults": {
+    "deepFileShareScan": false,
+    "includeConfigDependencyScan": false,
+    "attemptSqlIntegratedAuth": false,
+    "fullEventLogExport": false,
+    "includeUserProfiles": false,
+    "includeRecycleBin": false,
+    "includeWindowsFolder": false,
+    "eventLogDays": 14,
+    "maxEventSamplesPerLog": 50
+  },
+  "forceEnableModules": [],
+  "forceDisableModules": []
+}

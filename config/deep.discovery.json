@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "1.1.0",
+  "mode": "Deep",
+  "description": "Deep mode is for detailed discovery. It includes all Fast mode modules plus deeper file share analysis, config dependency scan (unless excluded), more event log samples, optional SQL integrated auth (if enabled by config or switch), application fingerprinting, critical path analysis, and deeper task/service/IIS/certificate/backup analysis. Deep mode remains strictly read-only and still avoids secrets and destructive behaviour. Every key in parameterDefaults is read at runtime and overrides default.discovery.json's 'defaults'; the command line overrides both.",
+  "parameterDefaults": {
+    "deepFileShareScan": true,
+    "includeConfigDependencyScan": true,
+    "attemptSqlIntegratedAuth": false,
+    "fullEventLogExport": false,
+    "includeUserProfiles": false,
+    "includeRecycleBin": false,
+    "includeWindowsFolder": false,
+    "eventLogDays": 30,
+    "maxEventSamplesPerLog": 100
+  },
+  "forceEnableModules": [
+    "ConfigDependencyScan"
+  ],
+  "forceDisableModules": []
+}

@@ -1,0 +1,60 @@
+{
+  "schemaVersion": "1.2.0",
+  "description": "Output rendering settings. Every key here is read at runtime. Output FILE NAMES and FOLDER NAMES are deliberately not configurable: docs/OUTPUT-GUIDE.md documents them and downstream consumers (the verifier, the evidence manifest, the README) depend on them, so they are fixed in code rather than offered as knobs that would break the documented contract. Output encoding is always UTF-8. requiredOutputFiles are RUN-ROOT-RELATIVE paths under the two-folder layout: reports\\ holds the two finished deliverables and their supporting pack, evidence\\ holds the logs, raw captures and per-dataset exports. html.logoPath, when set, is a filename relative to THIS config directory (e.g. 'branding-logo.png') - embedded as a base64 data: URI into every generated report, never linked externally, so reports stay single self-contained files.",
+  "workbook": {
+    "headerColorHex": "#D9EAF7",
+    "fontName": "Calibri",
+    "fontSize": 11,
+    "maxWorksheetNameLength": 31
+  },
+  "html": {
+    "title": "Windows Server Discovery - Internal Engineering Report",
+    "brandName": "Your Company",
+    "accentColorHex": "#1F4E79",
+    "logoPath": ""
+  },
+  "csv": {
+    "delimiter": ","
+  },
+  "json": {
+    "depth": 12
+  },
+  "requiredOutputFiles": [
+    "README.txt",
+    "reports\\internal-engineering-report.html",
+    "reports\\internal-dashboard-report.html",
+    "reports\\internal-engineering-report.md",
+    "reports\\client-discovery-report.html",
+    "reports\\client-discovery-report.md",
+    "reports\\supporting\\summary.txt",
+    "reports\\supporting\\summary.md",
+    "reports\\supporting\\unknowns-that-matter.md",
+    "reports\\supporting\\follow-up-questions.md",
+    "reports\\supporting\\client-interview-questions.md",
+    "reports\\supporting\\draft-scope-language.md",
+    "reports\\supporting\\scope-assumptions.md",
+    "reports\\supporting\\scope-exclusions.md",
+    "reports\\supporting\\migration-complexity.md",
+    "reports\\supporting\\decommission-readiness.md",
+    "reports\\supporting\\scream-test-plan.md",
+    "reports\\supporting\\licensing-validation.md",
+    "reports\\supporting\\vendor-dependencies.md",
+    "reports\\supporting\\downtime-cutover-considerations.md",
+    "reports\\supporting\\application-validation-matrix.csv",
+    "reports\\supporting\\dependency-graph.csv",
+    "reports\\supporting\\wbs-inputs.csv",
+    "reports\\supporting\\workbook.xml",
+    "evidence\\collection-metadata.json",
+    "evidence\\discovery-plan.md",
+    "evidence\\logs\\limitations.txt",
+    "evidence\\logs\\scoping-risks.txt",
+    "evidence\\logs\\summary.txt",
+    "evidence\\logs\\errors.txt",
+    "evidence\\logs\\warnings.txt"
+  ],
+  "clientReport": {
+    "title": "Server Discovery Summary",
+    "audience": "ClientSafe",
+    "note": "The client report reads only datasets whose Visibility is ClientSafe or Both, headlines only Critical and High findings, and never renders a finding's raw Evidence string. These are enforced in modules/ReportBuilder and deliberately not configurable."
+  }
+}

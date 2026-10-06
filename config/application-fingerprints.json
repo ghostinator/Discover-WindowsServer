@@ -1,0 +1,564 @@
+{
+  "schemaVersion": "1.0.0",
+  "description": "Application fingerprints for MSP/server-migration scoping. Each fingerprint declares matchers evaluated against normalized datasets. A fingerprint matches when one or more matchers hit; confidence rises with the number and strength of matchers. This file is intended to be edited and extended over time.",
+  "confidenceModel": {
+    "oneWeakMatch": "Possible",
+    "oneStrongMatch": "Likely",
+    "multipleMatches": "Confirmed",
+    "strongSources": ["Services", "InstalledApplications", "SqlInstances", "IisSites"],
+    "weakSources": ["RunningProcesses", "ListeningPorts", "ConfigDependencyHints", "CriticalPaths", "OdbcDsns"]
+  },
+  "fingerprints": [
+    {
+      "applicationName": "Microsoft SQL Server",
+      "vendor": "Microsoft",
+      "category": "Database",
+      "likelyDependencyType": "Database Engine",
+      "potentialProjectImpact": ["Data Migration", "Labor", "Licensing", "Cutover Complexity"],
+      "suggestedValidationQuestion": "Which applications depend on this SQL Server, and is there a documented backup and recovery process for its databases?",
+      "matchers": [
+        { "source": "Services", "field": "Name", "pattern": "(?i)^MSSQL(SERVER|\\$)" },
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)SQL Server (200|201|202)" },
+        { "source": "ListeningPorts", "field": "LocalPort", "pattern": "^1433$" }
+      ]
+    },
+    {
+      "applicationName": "SQL Server Express",
+      "vendor": "Microsoft",
+      "category": "Database",
+      "likelyDependencyType": "Database Engine",
+      "potentialProjectImpact": ["Data Migration", "Labor", "Architecture Decision"],
+      "suggestedValidationQuestion": "This appears to be SQL Express (size/edition limits). Has database growth against Express limits been evaluated for the target environment?",
+      "matchers": [
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)SQL Server.*Express" },
+        { "source": "Services", "field": "Name", "pattern": "(?i)SQLEXPRESS" }
+      ]
+    },
+    {
+      "applicationName": "SQL Server Management Studio",
+      "vendor": "Microsoft",
+      "category": "Database Tools",
+      "likelyDependencyType": "Administration Tool",
+      "potentialProjectImpact": ["Labor"],
+      "suggestedValidationQuestion": "SSMS is installed. Is this server used for database administration, and does that responsibility move with the migration?",
+      "matchers": [
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)SQL Server Management Studio" }
+      ]
+    },
+    {
+      "applicationName": "Internet Information Services (IIS)",
+      "vendor": "Microsoft",
+      "category": "Web Server",
+      "likelyDependencyType": "Web Application Host",
+      "potentialProjectImpact": ["Labor", "Cutover Complexity", "Architecture Decision"],
+      "suggestedValidationQuestion": "Which web applications does IIS host, who owns them, and are certificate/host-header dependencies documented?",
+      "matchers": [
+        { "source": "Services", "field": "Name", "pattern": "(?i)^W3SVC$" },
+        { "source": "RolesFeatures", "field": "Name", "pattern": "(?i)Web-Server" },
+        { "source": "IisSites", "field": "Name", "pattern": ".+" }
+      ]
+    },
+    {
+      "applicationName": "Sage",
+      "vendor": "Sage",
+      "category": "Accounting/ERP",
+      "likelyDependencyType": "Line-of-Business Application",
+      "potentialProjectImpact": ["Data Migration", "Vendor Dependency", "Licensing", "Client Coordination"],
+      "suggestedValidationQuestion": "Sage is present. Who is the Sage vendor/support contact, and is a maintenance/support plan active for a possible reinstall or reactivation?",
+      "matchers": [
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)\\bSage\\b" },
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)\\bSage\\b" }
+      ]
+    },
+    {
+      "applicationName": "Sage Timeslips",
+      "vendor": "Sage",
+      "category": "Time & Billing",
+      "likelyDependencyType": "Line-of-Business Application",
+      "potentialProjectImpact": ["Data Migration", "Vendor Dependency", "Licensing"],
+      "suggestedValidationQuestion": "Sage Timeslips is present. Where is the Timeslips database stored, and who validates time/billing after migration?",
+      "matchers": [
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)Timeslips" }
+      ]
+    },
+    {
+      "applicationName": "QuickBooks",
+      "vendor": "Intuit",
+      "category": "Accounting",
+      "likelyDependencyType": "Line-of-Business Application",
+      "potentialProjectImpact": ["Data Migration", "Vendor Dependency", "Licensing", "Client Coordination"],
+      "suggestedValidationQuestion": "QuickBooks is present. Is the QuickBooks Database Server Manager in use for multi-user access, and where is the company file located?",
+      "matchers": [
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)QuickBooks" },
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)QuickBooks" }
+      ]
+    },
+    {
+      "applicationName": "ACT!",
+      "vendor": "Act! LLC",
+      "category": "CRM",
+      "likelyDependencyType": "Line-of-Business Application",
+      "potentialProjectImpact": ["Data Migration", "Vendor Dependency", "Licensing"],
+      "suggestedValidationQuestion": "ACT! is present. Where is the ACT! database, and is vendor support available for migration?",
+      "matchers": [
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)\\bACT!" }
+      ]
+    },
+    {
+      "applicationName": "BarTender",
+      "vendor": "Seagull Scientific",
+      "category": "Label Printing",
+      "likelyDependencyType": "Label Printing / Licensing Service",
+      "potentialProjectImpact": ["Vendor Dependency", "Licensing", "Cutover Complexity"],
+      "suggestedValidationQuestion": "BarTender is present. Who validates label printing after migration, and is vendor support available if licensing needs to be reactivated?",
+      "matchers": [
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)BarTender" },
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)BarTender" }
+      ]
+    },
+    {
+      "applicationName": "Epicor",
+      "vendor": "Epicor",
+      "category": "ERP",
+      "likelyDependencyType": "Line-of-Business Application",
+      "potentialProjectImpact": ["Data Migration", "Vendor Dependency", "Licensing", "Architecture Decision"],
+      "suggestedValidationQuestion": "Epicor is present. Is Epicor vendor coordination required for any server move, and where is the Epicor database hosted?",
+      "matchers": [
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)Epicor" },
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)Epicor" }
+      ]
+    },
+    {
+      "applicationName": "Microsoft Dynamics",
+      "vendor": "Microsoft",
+      "category": "ERP/CRM",
+      "likelyDependencyType": "Line-of-Business Application",
+      "potentialProjectImpact": ["Data Migration", "Vendor Dependency", "Licensing"],
+      "suggestedValidationQuestion": "Microsoft Dynamics is present. Which databases and integrations does it depend on, and is partner/vendor support engaged?",
+      "matchers": [
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)Dynamics (GP|NAV|SL|365|CRM|AX)" }
+      ]
+    },
+    {
+      "applicationName": "Crystal Reports",
+      "vendor": "SAP",
+      "category": "Reporting",
+      "likelyDependencyType": "Reporting Runtime",
+      "potentialProjectImpact": ["Vendor Dependency", "Data Migration"],
+      "suggestedValidationQuestion": "Crystal Reports runtime is present. Which application relies on it, and are report data sources documented?",
+      "matchers": [
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)Crystal Reports" }
+      ]
+    },
+    {
+      "applicationName": "FlexNet / FlexLM License Manager",
+      "vendor": "Flexera",
+      "category": "License Manager",
+      "likelyDependencyType": "License Server",
+      "potentialProjectImpact": ["Licensing", "Vendor Dependency", "Cutover Complexity"],
+      "suggestedValidationQuestion": "A FlexNet/FlexLM license service is present. Is license reactivation or host-ID rebinding required if this server is replaced?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)flex(net|lm)" },
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)FlexNet|FlexLM" },
+        { "source": "Services", "field": "Name", "pattern": "(?i)lmgrd" }
+      ]
+    },
+    {
+      "applicationName": "Sentinel HASP / LDK License Manager",
+      "vendor": "Thales/SafeNet",
+      "category": "License Manager",
+      "likelyDependencyType": "License Server / Hardware Dongle",
+      "potentialProjectImpact": ["Licensing", "Vendor Dependency", "Cutover Complexity"],
+      "suggestedValidationQuestion": "A Sentinel HASP/LDK license service is present. Is a hardware dongle involved, and is vendor support required to move licensing?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)Sentinel (LDK|HASP|License)" },
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)Sentinel (LDK|HASP)|HASP" }
+      ]
+    },
+    {
+      "applicationName": "CodeMeter License Manager",
+      "vendor": "Wibu-Systems",
+      "category": "License Manager",
+      "likelyDependencyType": "License Server / Dongle",
+      "potentialProjectImpact": ["Licensing", "Vendor Dependency"],
+      "suggestedValidationQuestion": "A CodeMeter license service is present. Which application depends on it, and is a dongle or container involved?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)CodeMeter" },
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)CodeMeter" }
+      ]
+    },
+    {
+      "applicationName": "Reprise License Manager (RLM)",
+      "vendor": "Reprise Software",
+      "category": "License Manager",
+      "likelyDependencyType": "License Server",
+      "potentialProjectImpact": ["Licensing", "Vendor Dependency"],
+      "suggestedValidationQuestion": "A Reprise License Manager is present. Which application relies on it, and is host rebinding required on migration?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)Reprise|\\bRLM\\b" },
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)Reprise License" }
+      ]
+    },
+    {
+      "applicationName": "PolyWorks",
+      "vendor": "InnovMetric",
+      "category": "Metrology/CAD",
+      "likelyDependencyType": "Engineering Application",
+      "potentialProjectImpact": ["Vendor Dependency", "Licensing", "Data Migration"],
+      "suggestedValidationQuestion": "PolyWorks is present. Is licensing node-locked or floating, and is vendor coordination required for a move?",
+      "matchers": [
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)PolyWorks" }
+      ]
+    },
+    {
+      "applicationName": "Creo",
+      "vendor": "PTC",
+      "category": "CAD",
+      "likelyDependencyType": "Engineering Application",
+      "potentialProjectImpact": ["Vendor Dependency", "Licensing", "Data Migration"],
+      "suggestedValidationQuestion": "PTC Creo is present. Is a PTC license server involved, and where is CAD data stored?",
+      "matchers": [
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)\\bCreo\\b|PTC" }
+      ]
+    },
+    {
+      "applicationName": "Apache Tomcat / Java",
+      "vendor": "Apache/Oracle",
+      "category": "Application Server / Runtime",
+      "likelyDependencyType": "Java Application Host",
+      "potentialProjectImpact": ["Labor", "Cutover Complexity", "Architecture Decision"],
+      "suggestedValidationQuestion": "Java/Tomcat is present. Which application runs on it, what JVM version is required, and where is its configuration?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)Tomcat" },
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)Tomcat|Java(\\s|\\().*(SE|Runtime|JDK|JRE)" },
+        { "source": "RunningProcesses", "field": "Name", "pattern": "(?i)^(java|tomcat)" }
+      ]
+    },
+    {
+      "applicationName": "Apache HTTP Server",
+      "vendor": "Apache",
+      "category": "Web Server",
+      "likelyDependencyType": "Web Application Host",
+      "potentialProjectImpact": ["Labor", "Cutover Complexity"],
+      "suggestedValidationQuestion": "Apache HTTP Server is present. Which sites does it serve, and are its config and certificates documented?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)Apache" },
+        { "source": "RunningProcesses", "field": "Name", "pattern": "(?i)^httpd" }
+      ]
+    },
+    {
+      "applicationName": "PostgreSQL",
+      "vendor": "PostgreSQL",
+      "category": "Database",
+      "likelyDependencyType": "Database Engine",
+      "potentialProjectImpact": ["Data Migration", "Labor"],
+      "suggestedValidationQuestion": "PostgreSQL is present. Which application depends on it, and is there a documented backup/restore process?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)postgres" },
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)PostgreSQL" },
+        { "source": "ListeningPorts", "field": "LocalPort", "pattern": "^5432$" }
+      ]
+    },
+    {
+      "applicationName": "MySQL / MariaDB",
+      "vendor": "Oracle / MariaDB",
+      "category": "Database",
+      "likelyDependencyType": "Database Engine",
+      "potentialProjectImpact": ["Data Migration", "Labor", "Licensing"],
+      "suggestedValidationQuestion": "MySQL/MariaDB is present. Which application depends on it, and are backups validated?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)MySQL|MariaDB" },
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)MySQL|MariaDB" },
+        { "source": "ListeningPorts", "field": "LocalPort", "pattern": "^3306$" }
+      ]
+    },
+    {
+      "applicationName": "Oracle Database",
+      "vendor": "Oracle",
+      "category": "Database",
+      "likelyDependencyType": "Database Engine",
+      "potentialProjectImpact": ["Data Migration", "Labor", "Licensing", "Vendor Dependency"],
+      "suggestedValidationQuestion": "Oracle Database is present. Oracle licensing is complex; is vendor/licensing coordination required for any move?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)Oracle" },
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)Oracle Database|Oracle.*Client" },
+        { "source": "ListeningPorts", "field": "LocalPort", "pattern": "^1521$" }
+      ]
+    },
+    {
+      "applicationName": "Firebird",
+      "vendor": "Firebird Project",
+      "category": "Database",
+      "likelyDependencyType": "Embedded/Server Database",
+      "potentialProjectImpact": ["Data Migration", "Vendor Dependency"],
+      "suggestedValidationQuestion": "Firebird is present. Which application embeds it, and where are the database files?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)Firebird" },
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)Firebird" },
+        { "source": "ListeningPorts", "field": "LocalPort", "pattern": "^3050$" }
+      ]
+    },
+    {
+      "applicationName": "Pervasive / Actian Zen (Btrieve)",
+      "vendor": "Actian",
+      "category": "Database",
+      "likelyDependencyType": "Embedded/Server Database",
+      "potentialProjectImpact": ["Data Migration", "Vendor Dependency", "Licensing"],
+      "suggestedValidationQuestion": "Pervasive/Actian Zen is present. Which line-of-business app depends on it, and is vendor support available?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)Pervasive|Actian|Zen|Btrieve" },
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)Pervasive|Actian|Zen PSQL" }
+      ]
+    },
+    {
+      "applicationName": "Informix",
+      "vendor": "IBM/HCL",
+      "category": "Database",
+      "likelyDependencyType": "Database Engine",
+      "potentialProjectImpact": ["Data Migration", "Vendor Dependency"],
+      "suggestedValidationQuestion": "Informix is present. Which application depends on it, and is vendor support engaged?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)Informix" },
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)Informix" }
+      ]
+    },
+    {
+      "applicationName": "Veeam Backup",
+      "vendor": "Veeam",
+      "category": "Backup/DR",
+      "likelyDependencyType": "Backup Software",
+      "potentialProjectImpact": ["Rollback Planning", "Vendor Dependency", "Cutover Complexity"],
+      "suggestedValidationQuestion": "Veeam is present. What does it protect, where are backups stored, and is a recent successful restore validated?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)Veeam" },
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)Veeam" }
+      ]
+    },
+    {
+      "applicationName": "Datto",
+      "vendor": "Datto",
+      "category": "Backup/DR / RMM",
+      "likelyDependencyType": "Backup / RMM Agent",
+      "potentialProjectImpact": ["Rollback Planning", "Vendor Dependency"],
+      "suggestedValidationQuestion": "A Datto agent is present. Is it backup, RMM, or both, and how does it transition if the server is replaced?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)Datto" },
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)Datto" }
+      ]
+    },
+    {
+      "applicationName": "Acronis",
+      "vendor": "Acronis",
+      "category": "Backup/DR",
+      "likelyDependencyType": "Backup Software",
+      "potentialProjectImpact": ["Rollback Planning", "Vendor Dependency"],
+      "suggestedValidationQuestion": "Acronis is present. What does it protect and is recovery validated?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)Acronis" },
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)Acronis" }
+      ]
+    },
+    {
+      "applicationName": "StorageCraft / ShadowProtect",
+      "vendor": "Arcserve/StorageCraft",
+      "category": "Backup/DR",
+      "likelyDependencyType": "Backup Software",
+      "potentialProjectImpact": ["Rollback Planning", "Vendor Dependency"],
+      "suggestedValidationQuestion": "StorageCraft/ShadowProtect is present. Where are image backups stored and is recovery validated?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)StorageCraft|ShadowProtect" },
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)StorageCraft|ShadowProtect" }
+      ]
+    },
+    {
+      "applicationName": "Azure Backup (MARS Agent)",
+      "vendor": "Microsoft",
+      "category": "Backup/DR",
+      "likelyDependencyType": "Cloud Backup Agent",
+      "potentialProjectImpact": ["Rollback Planning", "Vendor Dependency", "Architecture Decision"],
+      "suggestedValidationQuestion": "The Azure Backup (MARS) agent is present. Which Recovery Services vault is it registered to, and who manages it?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)Microsoft Azure Recovery Services|OBEngine" },
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)Microsoft Azure Recovery Services Agent" }
+      ]
+    },
+    {
+      "applicationName": "Azure Arc",
+      "vendor": "Microsoft",
+      "category": "Cloud Management",
+      "likelyDependencyType": "Cloud Management Agent",
+      "potentialProjectImpact": ["Architecture Decision", "Vendor Dependency"],
+      "suggestedValidationQuestion": "Azure Arc is present. What is this server enrolled for (policy, monitoring, update management), and does enrollment move with it?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)Azure Connected Machine|himds|GC Arc" },
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)Azure Connected Machine Agent" }
+      ]
+    },
+    {
+      "applicationName": "Microsoft Monitoring Agent (MMA) / Log Analytics",
+      "vendor": "Microsoft",
+      "category": "Monitoring",
+      "likelyDependencyType": "Monitoring Agent",
+      "potentialProjectImpact": ["Vendor Dependency"],
+      "suggestedValidationQuestion": "The legacy Microsoft Monitoring Agent is present. Which workspace does it report to, and is migration to Azure Monitor Agent planned?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)Microsoft Monitoring Agent|HealthService" },
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)Microsoft Monitoring Agent" }
+      ]
+    },
+    {
+      "applicationName": "Azure Monitor Agent (AMA)",
+      "vendor": "Microsoft",
+      "category": "Monitoring",
+      "likelyDependencyType": "Monitoring Agent",
+      "potentialProjectImpact": ["Vendor Dependency"],
+      "suggestedValidationQuestion": "The Azure Monitor Agent is present. Which data collection rules apply, and do they follow the server?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)Azure Monitor Agent|AzureMonitorAgent" }
+      ]
+    },
+    {
+      "applicationName": "SentinelOne",
+      "vendor": "SentinelOne",
+      "category": "Security / EDR",
+      "likelyDependencyType": "EDR Agent",
+      "potentialProjectImpact": ["Vendor Dependency", "Security/Compliance"],
+      "suggestedValidationQuestion": "SentinelOne is present. Will discovery activity trigger alerts, and how is the agent handled during migration/decommission?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)SentinelOne|Sentinel Agent" },
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)SentinelOne|Sentinel Agent" }
+      ]
+    },
+    {
+      "applicationName": "CrowdStrike Falcon",
+      "vendor": "CrowdStrike",
+      "category": "Security / EDR",
+      "likelyDependencyType": "EDR Agent",
+      "potentialProjectImpact": ["Vendor Dependency", "Security/Compliance"],
+      "suggestedValidationQuestion": "CrowdStrike Falcon is present. Will discovery trigger detections, and is uninstall protection enabled?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)CrowdStrike|CSFalcon|CSAgent" },
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)CrowdStrike" }
+      ]
+    },
+    {
+      "applicationName": "Huntress",
+      "vendor": "Huntress",
+      "category": "Security / MDR",
+      "likelyDependencyType": "Security Agent",
+      "potentialProjectImpact": ["Vendor Dependency", "Security/Compliance"],
+      "suggestedValidationQuestion": "Huntress is present. How is the agent handled during migration, and who manages the Huntress tenant?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)Huntress" },
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)Huntress" }
+      ]
+    },
+    {
+      "applicationName": "Sophos",
+      "vendor": "Sophos",
+      "category": "Security / AV-EDR",
+      "likelyDependencyType": "Security Agent",
+      "potentialProjectImpact": ["Vendor Dependency", "Security/Compliance"],
+      "suggestedValidationQuestion": "Sophos is present. Is tamper protection enabled, and how is the agent migrated?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)Sophos" },
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)Sophos" }
+      ]
+    },
+    {
+      "applicationName": "Bitdefender",
+      "vendor": "Bitdefender",
+      "category": "Security / AV-EDR",
+      "likelyDependencyType": "Security Agent",
+      "potentialProjectImpact": ["Vendor Dependency", "Security/Compliance"],
+      "suggestedValidationQuestion": "Bitdefender is present. How is the agent handled during migration/decommission?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)Bitdefender" },
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)Bitdefender" }
+      ]
+    },
+    {
+      "applicationName": "Webroot",
+      "vendor": "OpenText/Webroot",
+      "category": "Security / AV",
+      "likelyDependencyType": "Security Agent",
+      "potentialProjectImpact": ["Vendor Dependency"],
+      "suggestedValidationQuestion": "Webroot is present. How is the agent handled during migration?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)Webroot" },
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)Webroot" }
+      ]
+    },
+    {
+      "applicationName": "ConnectWise ScreenConnect / Control",
+      "vendor": "ConnectWise",
+      "category": "Remote Access / RMM",
+      "likelyDependencyType": "Remote Access Agent",
+      "potentialProjectImpact": ["Vendor Dependency"],
+      "suggestedValidationQuestion": "ScreenConnect/Control is present. Which instance does it connect to, and does remote access transition with the server?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)ScreenConnect|ConnectWise Control" },
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)ScreenConnect|ConnectWise Control" }
+      ]
+    },
+    {
+      "applicationName": "Datto RMM (CentraStage)",
+      "vendor": "Datto",
+      "category": "RMM",
+      "likelyDependencyType": "RMM Agent",
+      "potentialProjectImpact": ["Vendor Dependency"],
+      "suggestedValidationQuestion": "Datto RMM is present. How does monitoring/patching transition during migration?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)Datto RMM|CentraStage|AEM Agent" },
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)Datto RMM|CentraStage" }
+      ]
+    },
+    {
+      "applicationName": "Auvik",
+      "vendor": "Auvik",
+      "category": "Network Monitoring",
+      "likelyDependencyType": "Monitoring Collector",
+      "potentialProjectImpact": ["Vendor Dependency"],
+      "suggestedValidationQuestion": "Auvik collector is present. Is this server a network monitoring collector that must be relocated?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)Auvik" },
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)Auvik" }
+      ]
+    },
+    {
+      "applicationName": "Dell OpenManage",
+      "vendor": "Dell",
+      "category": "Hardware Management",
+      "likelyDependencyType": "Hardware Vendor Tool",
+      "potentialProjectImpact": ["Vendor Dependency"],
+      "suggestedValidationQuestion": "Dell OpenManage is present. Is out-of-band (iDRAC) access documented for hardware refresh?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)OpenManage|Dell EMC" },
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)OpenManage|Dell EMC System Update" }
+      ]
+    },
+    {
+      "applicationName": "HPE Management Tools",
+      "vendor": "HPE",
+      "category": "Hardware Management",
+      "likelyDependencyType": "Hardware Vendor Tool",
+      "potentialProjectImpact": ["Vendor Dependency"],
+      "suggestedValidationQuestion": "HPE management tools are present. Is iLO access documented for hardware refresh?",
+      "matchers": [
+        { "source": "Services", "field": "DisplayName", "pattern": "(?i)HP(E)? (System|Insight|iLO|Smart)" },
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)HPE|HP (Insight|System Management|iLO)" }
+      ]
+    },
+    {
+      "applicationName": "Lenovo XClarity / OneCLI",
+      "vendor": "Lenovo",
+      "category": "Hardware Management",
+      "likelyDependencyType": "Hardware Vendor Tool",
+      "potentialProjectImpact": ["Vendor Dependency"],
+      "suggestedValidationQuestion": "Lenovo XClarity/OneCLI is present. Is XCC out-of-band access documented for hardware refresh?",
+      "matchers": [
+        { "source": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)XClarity|Lenovo.*OneCLI|ThinkSystem" }
+      ]
+    }
+  ]
+}

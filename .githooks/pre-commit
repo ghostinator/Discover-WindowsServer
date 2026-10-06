@@ -1,0 +1,45 @@
+#!/bin/sh
+# Pre-commit gate for Discover-WindowsServer.
+#
+# TODO.md's standing rule is that Invoke-ToolkitSelfCheck.ps1 and Invoke-OutputSmokeTest.ps1
+# must both stay green after every change. This hook enforces exactly that pair. The Pester
+# suite is deliberately NOT run here - it is slower and CI covers it on every push.
+#
+# This hook lives in .githooks/ (version-controlled) rather than .git/hooks/ (not), so it is
+# shared. Enable it once per clone:
+#
+#     git config core.hooksPath .githooks
+#
+# Bypass for a genuinely unrelated commit with:  git commit --no-verify
+
+set -e
+
+# Prefer PowerShell 7; fall back to Windows PowerShell 5.1.
+if command -v pwsh >/dev/null 2>&1; then
+    PS="pwsh"
+elif command -v powershell >/dev/null 2>&1; then
+    PS="powershell"
+else
+    echo "pre-commit: no PowerShell found on PATH - skipping checks." >&2
+    echo "pre-commit: run .\\tests\\Invoke-AllChecks.ps1 manually before pushing." >&2
+    exit 0
+fi
+
+echo "pre-commit: static contract self-check ($PS)..."
+"$PS" -NoProfile -File ./tests/Invoke-ToolkitSelfCheck.ps1 -Quiet || {
+    echo "" >&2
+    echo "pre-commit: SELF-CHECK FAILED - commit aborted." >&2
+    echo "pre-commit: run .\\tests\\Invoke-ToolkitSelfCheck.ps1 for the full output." >&2
+    exit 1
+}
+
+echo "pre-commit: output smoke test ($PS)..."
+"$PS" -NoProfile -File ./tests/Invoke-OutputSmokeTest.ps1 >/dev/null || {
+    echo "" >&2
+    echo "pre-commit: OUTPUT SMOKE TEST FAILED - commit aborted." >&2
+    echo "pre-commit: run .\\tests\\Invoke-OutputSmokeTest.ps1 for the full output." >&2
+    exit 1
+}
+
+echo "pre-commit: both checks green."
+exit 0

@@ -1,0 +1,63 @@
+# ---------------------------------------------------------------------------
+# Discovery output — NEVER commit this.
+# ---------------------------------------------------------------------------
+# Runs write to <OutputRoot>\Discover-WindowsServer_<COMPUTERNAME>_<timestamp>\
+# (default OutputRoot is C:\Temp, i.e. outside the repo). But -OutputRoot . would
+# land it here, and that output contains real client infrastructure data: share
+# paths, ACLs, service accounts, listening ports, event-log samples, and the
+# evidence archive. It is a client deliverable, not source.
+Discover-WindowsServer_*/
+/csv/
+/json/
+/html/
+/markdown/
+/raw/
+/evidence/
+/archive/
+/logs/
+/status/
+/client-safe/
+/internal/
+workbook.xml
+internal-report.html
+collection-metadata.json
+errors.txt
+warnings.txt
+limitations.txt
+scoping-risks.txt
+discovery-verification-report.txt
+
+# ---------------------------------------------------------------------------
+# Local branding config — a machine's own real client-facing brand name and
+# logo. The GUI now saves these to %ProgramData%\Discover-WindowsServer\branding;
+# config\ is the pre-move location (still read as a fallback) and where fleet
+# runs stage them on targets, so never let them into git from here either.
+# ---------------------------------------------------------------------------
+config/branding.local.json
+config/branding-logo.*
+
+# ---------------------------------------------------------------------------
+# Windows / OneDrive cruft
+# ---------------------------------------------------------------------------
+desktop.ini
+Thumbs.db
+ehthumbs.db
+$RECYCLE.BIN/
+*.lnk
+# OneDrive / Office lock files
+~$*
+
+# ---------------------------------------------------------------------------
+# Editors and tooling
+# ---------------------------------------------------------------------------
+.vscode/
+.idea/
+*.code-workspace
+
+# ---------------------------------------------------------------------------
+# Transient
+# ---------------------------------------------------------------------------
+*.tmp
+*.bak
+*.orig
+*.log

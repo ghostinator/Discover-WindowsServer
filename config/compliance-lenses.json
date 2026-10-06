@@ -1,0 +1,96 @@
+{
+  "schemaVersion": "1.0.0",
+  "description": "Compliance lenses add interpretive security/compliance relevance notes to findings. They DO NOT claim certification readiness, compliance, or noncompliance. They only annotate findings with relevance areas an assessor might care about.",
+  "globalDisclaimer": "Compliance relevance notes are interpretive only. This toolkit does not assess, assert, or certify compliance or noncompliance with any framework. All relevance notes require human validation.",
+  "lenses": {
+    "None": {
+      "displayName": "No Compliance Lens",
+      "enabled": false,
+      "relevanceByCategory": {},
+      "relevanceByFindingKeyword": {}
+    },
+    "CMMC": {
+      "displayName": "CMMC Readiness Lens (interpretive)",
+      "enabled": true,
+      "disclaimer": "Interpretive relevance to CMMC practice areas only. Not a compliance assessment.",
+      "relevanceByCategory": {
+        "Security": [
+          "Privileged access review",
+          "Logging/audit visibility",
+          "Local administrator review",
+          "Insecure protocol review",
+          "External access validation"
+        ],
+        "Identity / AD / DC": [
+          "Privileged access review",
+          "Service account review"
+        ],
+        "Service Account": [
+          "Service account review",
+          "Privileged access review"
+        ],
+        "Certificates": [
+          "Certificate/PKI validation",
+          "Encryption validation"
+        ],
+        "Backup / DR": [
+          "Backup/recovery validation"
+        ],
+        "Applications": [
+          "Unsupported OS/software risk"
+        ],
+        "Operating System": [
+          "Unsupported OS/software risk",
+          "Encryption validation"
+        ],
+        "Network": [
+          "External access validation",
+          "Insecure protocol review"
+        ]
+      },
+      "relevanceByFindingKeyword": {
+        "SMBv1": ["Insecure protocol review"],
+        "SMB1": ["Insecure protocol review"],
+        "NLA": ["External access validation", "Privileged access review"],
+        "TLS": ["Encryption validation", "Insecure protocol review"],
+        "BitLocker": ["Encryption validation"],
+        "AV": ["Evidence collection consideration"],
+        "EDR": ["Evidence collection consideration"],
+        "admin": ["Local administrator review", "Privileged access review"],
+        "audit": ["Logging/audit visibility"],
+        "firewall": ["External access validation"],
+        "LAPS": ["Local administrator review"],
+        "backup": ["Backup/recovery validation"],
+        "certificate": ["Certificate/PKI validation"],
+        "unsupported": ["Unsupported OS/software risk"],
+        "end of life": ["Unsupported OS/software risk"]
+      }
+    },
+    "GeneralSecurity": {
+      "displayName": "General Security Lens (interpretive)",
+      "enabled": true,
+      "disclaimer": "Interpretive general security relevance only. Not a compliance assessment.",
+      "relevanceByCategory": {
+        "Security": [
+          "Privileged access review",
+          "Insecure protocol review",
+          "Logging/audit visibility",
+          "External access validation"
+        ],
+        "Certificates": [
+          "Certificate/PKI validation",
+          "Encryption validation"
+        ],
+        "Backup / DR": [
+          "Backup/recovery validation"
+        ]
+      },
+      "relevanceByFindingKeyword": {
+        "SMBv1": ["Insecure protocol review"],
+        "TLS": ["Encryption validation"],
+        "admin": ["Privileged access review"],
+        "firewall": ["External access validation"]
+      }
+    }
+  }
+}

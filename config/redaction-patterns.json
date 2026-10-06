@@ -1,0 +1,98 @@
+{
+  "schemaVersion": "1.1.3",
+  "description": "Redaction reports WHERE a secret was found (path / key / name) but never the value itself. Patterns must handle every common secret shape: bare, quoted (single or double), '=' or ':' delimited, XML attribute pairs, and command-line flags. Erring toward over-redaction is correct here - a false positive costs a little evidence detail, a false negative writes a live credential into a client deliverable. See tests/Pester/Redaction.Tests.ps1 for the shape corpus this file must defeat.",
+  "replacement": "[REDACTED - sensitive-looking value detected]",
+  "keyLabels": [
+    "password",
+    "passwd",
+    "pwd",
+    "secret",
+    "token",
+    "api key",
+    "apikey",
+    "api-key",
+    "client secret",
+    "clientsecret",
+    "private key",
+    "privatekey",
+    "shared secret",
+    "sharedsecret",
+    "snmp community",
+    "community string",
+    "bearer",
+    "sas token",
+    "sastoken",
+    "access key",
+    "accesskey",
+    "secret key",
+    "connection string password",
+    "bitlocker recovery key",
+    "recoverykey",
+    "credential",
+    "auth",
+    "authorization"
+  ],
+  "valuePatterns": [
+    {
+      "name": "XmlKeyValueAttributePair",
+      "comment": "<add key=\"Password\" value=\"secret\" /> - the value lives in a separate attribute, so the keyed pattern below cannot see it.",
+      "pattern": "(?i)((?:key|name)\\s*=\\s*\"[^\"]*(?:password|passwd|pwd|secret|token|api[_ \\-]?key|credential)[^\"]*\"\\s+value\\s*=\\s*)\"[^\"]*\"",
+      "keepStructure": true,
+      "structureReplacement": "$1\"[REDACTED]\""
+    },
+    {
+      "name": "NetUsePositionalPassword",
+      "comment": "net use Z: \\\\fs01\\share /user:DOMAIN\\acct <password> - the secret is positional, with no key at all.",
+      "pattern": "(?i)(net\\s+use\\b[^\\r\\n]*?/user:\\s*\\S+)\\s+(?:\"[^\"]*\"|'[^']*'|[^\\s]+)",
+      "keepStructure": true,
+      "structureReplacement": "$1 [REDACTED]"
+    },
+    {
+      "name": "KeyedSecretAnyDelimiter",
+      "comment": "Covers Password=x; \"password\": \"x\"; password: x; SMTP_PASSWORD=x; dbPassword='x'; --password=\"x\"; -pwd:'x'. Deliberately has NO leading \\b so it still matches keys with prefixes such as SMTP_PASSWORD. The value alternation accepts a double-quoted, single-quoted, or bare token, so it can no longer stop dead at an opening quote. Bare 'community' was narrowed to snmp-community shapes 2026-09-18 (owner decision): 52 of 62 config-hint redactions on the first real Deep run were Adobe help URLs keyed 'core.utilnav.help.community.*.link', and the redaction blanked the endpoint out of ConfigDependencyHints - the dataset whose entire purpose is recording endpoints. Accepted residual risk: a bare 'community = ...' key (classic SNMP) no longer redacts; 'snmp community', 'snmpCommunity', 'snmp-community' and 'community string' still do. Bare 'token' excludes 'publicKeyToken' 2026-09-22: .NET assembly binding entries (<assemblyIdentity publicKeyToken=\"b03f5f7f11d50a3a\" .../>, web.config bindingRedirects) are common in scanned config trees, and a publicKeyToken is a public assembly identity hash, never a secret - redacting it destroyed evidence with no security benefit. Other 'token' shapes (SecurityToken, ApiToken, sasToken, ...) still redact.",
+      "pattern": "(?i)([\\w.\\-]*(?:client[_ \\-]?secret|shared[_ \\-]?secret|api[_ \\-]?key|access[_ \\-]?key|secret[_ \\-]?key|auth[_ \\-]?token|recovery[_ \\-]?key|private[_ \\-]?key|password|passwd|pwd|secret|(?<!publickey)token|credential|snmp[_ \\-]?community|community[_ \\-]?string)[\\w.\\-]*)\"?\\s*[:=]\\s*(?:\"[^\"]*\"|'[^']*'|[^\\s;,)&\"']+)",
+      "keepStructure": true,
+      "structureReplacement": "$1=[REDACTED]"
+    },
+    {
+      "name": "CommandLineSecretFlag",
+      "comment": "Space-separated CLI secrets the keyed pattern cannot catch because there is no ':' or '=': sqlcmd -P secret, --password secret, --token secret. -P is matched case-sensitively via (?-i:) so a lowercase -p (commonly a port or path) is left alone, AND is scoped by lookbehind to sqlcmd/osql/bcp/isql. Without that scope it matched any space-delimited -P and ate the next token on ordinary command lines such as 'pwd -P <path>' or 'curl -P 21' - found on the first real Windows run, where every redaction in the output was this false positive and none were real secrets.",
+      "pattern": "(?i)(?<=^|\\s)(-{1,2}(?:password|passwd|pwd|secret|token|apikey|api-key|accesskey|access-key)|(?<=(?:sqlcmd|osql|bcp|isql)(?:\\.exe)?\\b[^\\r\\n]{0,200}?\\s)(?-i:-P))(?:\\s*[:=]\\s*|\\s+)(?:\"[^\"]*\"|'[^']*'|[^\\s]+)",
+      "keepStructure": true,
+      "structureReplacement": "$1 [REDACTED]"
+    },
+    {
+      "name": "JsonWebToken",
+      "comment": "Bare JWT anywhere in the string - a safety net for tokens that carry no recognisable key.",
+      "pattern": "eyJ[A-Za-z0-9_\\-]{8,}\\.[A-Za-z0-9_\\-]{8,}(?:\\.[A-Za-z0-9_\\-]*)?",
+      "keepStructure": false
+    },
+    {
+      "name": "BearerToken",
+      "pattern": "(?i)bearer\\s+[A-Za-z0-9\\-._~+/]{12,}=*",
+      "keepStructure": false
+    },
+    {
+      "name": "AwsAccessKey",
+      "pattern": "AKIA[0-9A-Z]{16}",
+      "keepStructure": false
+    },
+    {
+      "name": "AzureSasToken",
+      "pattern": "(?i)sig=[A-Za-z0-9%]{16,}",
+      "keepStructure": false
+    },
+    {
+      "name": "PemPrivateKeyHeader",
+      "pattern": "-----BEGIN (?:RSA |EC |OPENSSH |DSA |ENCRYPTED )?PRIVATE KEY-----",
+      "keepStructure": false
+    }
+  ],
+  "neverCollect": [
+    "certificate private keys",
+    "password hashes",
+    "BitLocker recovery keys",
+    "RADIUS shared secrets",
+    "plaintext passwords"
+  ]
+}

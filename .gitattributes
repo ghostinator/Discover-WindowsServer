@@ -1,0 +1,25 @@
+# Normalise on checkin, and keep CRLF in the working tree for everything Windows
+# PowerShell touches. The existing files are all CRLF; without this, a clone on a
+# non-Windows machine followed by a commit would rewrite every file.
+* text=auto eol=crlf
+
+# PowerShell
+*.ps1   text eol=crlf
+*.psm1  text eol=crlf
+*.psd1  text eol=crlf
+
+# Config and docs
+*.json  text eol=crlf
+*.md    text eol=crlf
+*.csv   text eol=crlf
+*.xml   text eol=crlf
+*.yml   text eol=lf
+
+# Git hooks are run by sh - they must stay LF or they fail with a bad interpreter error.
+.githooks/* text eol=lf
+
+# Never touch these
+*.zip   binary
+*.png   binary
+*.jpg   binary
+*.ico   binary
