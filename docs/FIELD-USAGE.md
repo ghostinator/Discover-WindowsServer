@@ -85,6 +85,8 @@ Output                                 ->  CSV / JSON / workbook / HTML / Markdo
 | `EntraConnectDetail` | AzureHybrid | `SyncEngineInstalled`(bool), `StagingModeEnabled`, `PassThroughAgentPresent`(bool), `SyncErrorEventsInWindow`(number) |
 | `AdDomainControllers` | ActiveDirectory | `Name`, `OperatingSystem`, `Site`, `IsGlobalCatalog`(bool), `IsReadOnly`(bool), `IsUnsupportedOs`(bool) |
 | `AdHealthChecks` | ActiveDirectory | `Check`, `Result`, `Detail` |
+| `GpoInventory` | ActiveDirectory | `GpoName`, `GpoGuid`, `IsLinked`(bool), `LinkCount`(number), `ServerReferenceCount`(number), `HasGppPasswords`(bool - presence only, the value is never read into a row) |
+| `GpoServerReferences` | ActiveDirectory | `GpoName`, `GpoGuid`, `GpoLinked`(bool), `Scope`, `SettingType`, `Item`, `Reference`, `ReferencedHost`, `ReferencesThisServer`(bool) |
 | `DhcpServerSummary` | DHCP | `HostsActiveDhcp`(bool), `HasFailover`(bool), `ActiveScopeCount`(number) |
 | `DnsZones` | DNS | `ZoneName`, `IsConditionalForwarder`(bool), `MasterServers`, `RequiresStaticUpdates`(bool) |
 | `HyperVUnattachedFiles` | HyperV | `Path`, `FileType`, `SizeGB` |

@@ -606,6 +606,8 @@ function Get-InternalReportSectionMap {
         'DC Health (dcdiag)'           = 'AdHealthChecks'
         'DNS Zones'                    = 'DnsZones'
         'DHCP Summary'                 = 'DhcpServerSummary'
+        'Group Policy Objects'         = 'GpoInventory'
+        'Group Policy Server References' = 'GpoServerReferences'
         'Non-Microsoft Services'       = @{ Dataset = 'Services'; Filter = { $_.IsNonMicrosoftAutoStart } }
         'Non-Microsoft Scheduled Tasks' = @{ Dataset = 'ScheduledTasks'; Filter = { [string]$_.TaskPath -notlike '\Microsoft\*' } }
         'Event-Log Errors by Workload' = 'EventLogDependencyAreas'

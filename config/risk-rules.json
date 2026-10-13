@@ -4539,6 +4539,70 @@
       "sourceModule": "EventLogs",
       "sourceDataset": "EventLogDependencyAreas",
       "riskCategory": "Application compatibility"
+    },
+    {
+      "id": "RULE-GPO-002",
+      "enabled": true,
+      "category": "Identity / AD / DC",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "Group Policy references this server",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "GpoServerReferences",
+        "field": "ReferencesThisServer",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "GpoName",
+      "evidenceTemplate": "GPO '{GpoName}' ({Scope}, linked: {GpoLinked}) {SettingType} {Item} -> {Reference}",
+      "whyItMattersForScoping": "Drive maps, printers, scripts and folder redirection delivered by Group Policy point at this server by name. Every one must be re-pointed before the server is renamed or retired, or users lose them at next logon with no obvious cause.",
+      "potentialProjectImpact": [
+        "Cutover Complexity",
+        "Client Coordination"
+      ],
+      "suggestedValidationQuestion": "Who maintains the Group Policy objects that point at this server, and when can they be updated to the new location?",
+      "sourceModule": "ActiveDirectory",
+      "sourceDataset": "GpoServerReferences",
+      "riskCategory": "Group Policy dependency",
+      "projectTypeEmphasis": [
+        "Decommission",
+        "ServerRefresh"
+      ]
+    },
+    {
+      "id": "RULE-GPO-003",
+      "enabled": true,
+      "category": "Security",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "Group Policy Preferences store a password (cpassword)",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "GpoInventory",
+        "field": "HasGppPasswords",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "GpoName",
+      "evidenceTemplate": "GPO '{GpoName}' contains a cpassword attribute (value not collected)",
+      "whyItMattersForScoping": "GPP passwords are encrypted with a published key and readable by any domain user (MS14-025). The account must be treated as exposed and the setting removed.",
+      "potentialProjectImpact": [
+        "Security/Compliance",
+        "Labor"
+      ],
+      "suggestedValidationQuestion": "Which account does the stored Group Policy password belong to, and can it be rotated and the setting removed?",
+      "sourceModule": "ActiveDirectory",
+      "sourceDataset": "GpoInventory",
+      "riskCategory": "Group Policy dependency",
+      "complianceRelevance": [
+        "Privileged access review"
+      ],
+      "projectTypeEmphasis": [
+        "CMMCReadiness",
+        "Decommission",
+        "ServerRefresh"
+      ]
     }
   ]
 }

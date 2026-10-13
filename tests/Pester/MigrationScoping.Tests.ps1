@@ -71,7 +71,7 @@ Describe 'Finding and risk-register schema compatibility' {
         Get-RiskCategoryForRule -Rule ([pscustomobject]@{ id='RULE-X-1'; category='Database'; riskCategory='ODBC dependency' }) | Should -Be 'ODBC dependency'
     }
     It 'gives every shipped rule a risk category from the normalized list or its own category' {
-        $norm = @('Application compatibility','Database migration','ODBC dependency','IIS dependency','SMTP relay','Exchange decommissioning','Entra Connect relocation','AD role migration','DNS cutover','DHCP cutover','File migration','Printer migration','Target capacity','Backup readiness','Unsupported software','Hypervisor decommissioning','Incomplete discovery')
+        $norm = @('Application compatibility','Database migration','ODBC dependency','IIS dependency','SMTP relay','Exchange decommissioning','Entra Connect relocation','AD role migration','DNS cutover','DHCP cutover','File migration','Printer migration','Target capacity','Backup readiness','Unsupported software','Hypervisor decommissioning','Incomplete discovery','Group Policy dependency')
         foreach ($r in @($script:Config.RiskRules.rules | Where-Object { $_.riskCategory })) { $norm | Should -Contain $r.riskCategory -Because $r.id }
     }
     It 'keeps client-safe headlines free of findings marked clientSafe false (fleet register rows without the column still pass)' {

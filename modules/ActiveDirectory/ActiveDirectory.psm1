@@ -9,7 +9,7 @@ function Get-DiscoveryModuleMetadata {
         ModuleName='ActiveDirectory'; DisplayName='Active Directory & Migration Readiness'; Category='Identity'; Version='1.0.0'
         DefaultInFast=$true; DefaultInDeep=$true; RequiresAdmin=$false; RequiresDomainContext=$false
         RequiresRole=$null; EstimatedImpact='Low'; CanRunAsSystem=$true
-        ProducesDatasets=@('DomainContext','AppliedGroupPolicy','DomainControllerDiscovery','AdDomainControllers','AdFsmoRoles','AdReplicationSummary','AdHealthChecks')
+        ProducesDatasets=@('DomainContext','AppliedGroupPolicy','DomainControllerDiscovery','AdDomainControllers','AdFsmoRoles','AdReplicationSummary','AdHealthChecks','GpoInventory','GpoServerReferences')
         ProducesRisks=$true; ProducesFollowUpQuestions=$false; SupportsDeepMode=$true; SupportsComplianceLens=$true
     }
 }
@@ -108,6 +108,139 @@ function Get-AdDcInventory {
         return ,@($byName.Values | Sort-Object Name)
     } catch { return $null }
 }
+
+#region GPO content inspection (read-only SYSVOL reads) --------------------------
+
+# Group Policy Preference files and the setting type each represents.
+$script:GpoPreferenceKinds = @{
+    'Drives.xml'='Drive map'; 'Printers.xml'='Printer'; 'Shortcuts.xml'='Shortcut'; 'Files.xml'='File copy'; 'Folders.xml'='Folder'
+    'ScheduledTasks.xml'='Scheduled task'; 'DataSources.xml'='ODBC data source'; 'Registry.xml'='Registry'; 'EnvironmentVariables.xml'='Environment variable'
+    'IniFiles.xml'='INI file'; 'Services.xml'='Service'; 'Groups.xml'='Local group'; 'NetworkShares.xml'='Network share'
+}
+
+function Get-GpoHostFromText {
+    <# Pure: every server name referenced by a UNC path (\\host\...) or a bare host/IP value. #>
+    param([string]$Text, [switch]$BareHost)
+    $hosts = [System.Collections.Generic.List[string]]::new()
+    if ([string]::IsNullOrWhiteSpace($Text)) { return ,@() }
+    foreach ($m in [regex]::Matches($Text, '\\\\([A-Za-z0-9][A-Za-z0-9._-]*)\\')) { $h = $m.Groups[1].Value; if ($h -notmatch '^(\?|\.)$' -and -not $hosts.Contains($h)) { $hosts.Add($h) } }
+    if ($BareHost -and $hosts.Count -eq 0) { $t = (($Text.Trim() -split '[\\,:;\s]')[0]); if ($t -match '^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$' -and $t -notmatch '^\d+$') { $hosts.Add($t) } }
+    return ,@($hosts)
+}
+
+function Get-GpoFileReferences {
+    <#
+        Server references inside ONE policy file (pure apart from reading it). Handles Group Policy
+        Preference XML, scripts.ini / psscripts.ini, folder-redirection fdeploy*.ini and the binary
+        Registry.pol (scanned as UTF-16 text for UNC paths only). Credential attributes
+        (cpassword, password, ...) are never read into a row: a non-empty cpassword only sets
+        HasStoredPassword. Script 'Parameters' lines are skipped (they can carry credentials).
+    #>
+    param([Parameter(Mandatory)][string]$Path, [string]$Scope = '', [object]$Context)
+    $refs = [System.Collections.Generic.List[object]]::new()
+    $hasPwd = $false
+    $name = Split-Path -Leaf $Path
+    $add = {
+        param($kind, $item, $value, [switch]$Bare)
+        foreach ($h in (Get-GpoHostFromText -Text $value -BareHost:$Bare)) {
+            $refs.Add([pscustomobject]@{ Scope=$Scope; SettingType=$kind; Item=[string]$item; Reference=(Redact-SensitiveValue -InputString ([string]$value) -Context $Context); ReferencedHost=$h; SourceFile=$name })
+        }
+    }
+    if ($name -match '(?i)\.xml$') {
+        $kind = if ($script:GpoPreferenceKinds.ContainsKey($name)) { $script:GpoPreferenceKinds[$name] } else { 'Preference' }
+        [xml]$x = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop
+        foreach ($el in $x.SelectNodes('//*')) {
+            $owner = $el; while ($owner -and -not $owner.GetAttribute('name') -and $owner.ParentNode -is [System.Xml.XmlElement]) { $owner = $owner.ParentNode }
+            $item = if ($owner -and $owner.GetAttribute('name')) { $owner.GetAttribute('name') } else { $el.LocalName }
+            foreach ($a in @($el.Attributes)) {
+                if ($a.Name -match '(?i)^(cpassword|password|pwd)$' -or (Test-SensitiveKeyLabel -Name $a.Name -Context $Context)) { if ($a.Name -ieq 'cpassword' -and $a.Value) { $hasPwd = $true }; continue }
+                if ($a.Name -match '(?i)^(server|servername|host|hostname|ipaddress)$') { & $add $kind $item $a.Value -Bare }
+                elseif ($a.Value -match '\\\\') { & $add $kind $item $a.Value }
+            }
+            # DataSources.xml keeps connection attributes as <Attribute name="SERVER" value="..."/>.
+            if ($el.LocalName -eq 'Attribute' -and $el.GetAttribute('name') -match '(?i)^(server|servername|host|dbq)$') { & $add $kind $el.GetAttribute('name') $el.GetAttribute('value') -Bare:($el.GetAttribute('name') -notmatch '(?i)dbq') }
+        }
+    } elseif ($name -match '(?i)^(ps)?scripts\.ini$') {
+        foreach ($ln in (Get-Content -LiteralPath $Path -ErrorAction Stop)) {
+            if ($ln -match '(?i)^\s*\d+CmdLine\s*=\s*(.+)$') { & $add 'Logon/startup script' $Matches[1].Trim() $Matches[1] }
+        }
+    } elseif ($name -match '(?i)^fdeploy\d*\.ini$') {
+        foreach ($ln in (Get-Content -LiteralPath $Path -ErrorAction Stop)) { if ($ln -match '\\\\') { & $add 'Folder redirection' ($ln -split '=')[0] $ln } }
+    } elseif ($name -match '(?i)^registry\.pol$') {
+        $text = [System.Text.Encoding]::Unicode.GetString([System.IO.File]::ReadAllBytes($Path))
+        foreach ($m in [regex]::Matches($text, '\\\\[A-Za-z0-9][A-Za-z0-9._-]*\\[^\x00\[\];]*')) { & $add 'Administrative template' '' $m.Value }
+    }
+    return [pscustomobject]@{ References=@($refs); HasStoredPassword=$hasPwd }
+}
+
+function Get-GpoContentInspection {
+    <#
+        Every GPO in the domain (LDAP: name, state, links) and the server references inside its
+        SYSVOL files. Read-only and bounded (1000 GPOs, 5 MB per file, 120 s). References are
+        flagged when they name this server by host name, FQDN or IP. Returns $null when the
+        domain cannot be read.
+    #>
+    param([object]$Context, [string[]]$MyNames = @(), [string[]]$MyAddresses = @(), [int]$TimeBudgetSeconds = 120)
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $inv = [System.Collections.Generic.List[object]]::new(); $refs = [System.Collections.Generic.List[object]]::new(); $capped = $false
+    try {
+        $root = [ADSI]'LDAP://RootDSE'
+        $nc = [string]$root.Properties['defaultNamingContext'][0]
+        if (-not $nc) { return $null }
+        $links = @{}
+        $ls = New-Object System.DirectoryServices.DirectorySearcher([ADSI]"LDAP://$nc", '(gPLink=*)')
+        $ls.PageSize = 500; $ls.ClientTimeout = [TimeSpan]::FromSeconds(30); [void]$ls.PropertiesToLoad.Add('gPLink'); [void]$ls.PropertiesToLoad.Add('distinguishedName')
+        foreach ($r in $ls.FindAll()) {
+            $dn = [string]$r.Properties['distinguishedname'][0]
+            foreach ($m in [regex]::Matches([string]$r.Properties['gplink'][0], '(?i)cn=(\{[0-9a-f-]+\}),[^;]*;(\d)')) {
+                $g = $m.Groups[1].Value.ToUpperInvariant()
+                if (-not $links.ContainsKey($g)) { $links[$g] = [System.Collections.Generic.List[string]]::new() }
+                # Link option bit 1 = link disabled.
+                if (-not ([int]$m.Groups[2].Value -band 1)) { $links[$g].Add($dn) }
+            }
+        }
+        $gs = New-Object System.DirectoryServices.DirectorySearcher([ADSI]"LDAP://CN=Policies,CN=System,$nc", '(objectClass=groupPolicyContainer)')
+        $gs.PageSize = 500; $gs.ClientTimeout = [TimeSpan]::FromSeconds(30)
+        foreach ($p in 'name','displayName','gPCFileSysPath','flags','whenChanged') { [void]$gs.PropertiesToLoad.Add($p) }
+        $mine = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        foreach ($n in @($MyNames) + @($MyAddresses)) { if ($n) { [void]$mine.Add($n) } }
+        $n = 0
+        foreach ($g in $gs.FindAll()) {
+            if (++$n -gt 1000 -or $sw.Elapsed.TotalSeconds -ge $TimeBudgetSeconds) { $capped = $true; break }
+            $guid = ([string]$g.Properties['name'][0]).ToUpperInvariant(); $display = [string]$g.Properties['displayname'][0]; $sysvol = [string]$g.Properties['gpcfilesyspath'][0]
+            $flags = 0; [void][int]::TryParse([string]$g.Properties['flags'][0], [ref]$flags)
+            $linked = @(if ($links.ContainsKey($guid)) { $links[$guid] } else { @() })
+            $pwd = $false; $gpoRefCount = 0; $readable = $true
+            try {
+                foreach ($f in @(Get-ChildItem -LiteralPath $sysvol -Recurse -File -ErrorAction Stop | Where-Object { $_.Length -le 5MB -and ($_.Name -match '(?i)\.xml$|^(ps)?scripts\.ini$|^fdeploy\d*\.ini$|^registry\.pol$') })) {
+                    if ($sw.Elapsed.TotalSeconds -ge $TimeBudgetSeconds) { $capped = $true; break }
+                    $scope = if ($f.FullName -match '(?i)\\User\\') { 'User' } else { 'Computer' }
+                    try {
+                        $r = Get-GpoFileReferences -Path $f.FullName -Scope $scope -Context $Context
+                        if ($r.HasStoredPassword) { $pwd = $true }
+                        foreach ($x in $r.References) {
+                            $hostLabel = ($x.ReferencedHost -split '\.')[0]
+                            $refs.Add([pscustomobject]@{
+                                GpoName=$display; GpoGuid=$guid; GpoLinked=[bool]$linked.Count; Scope=$x.Scope; SettingType=$x.SettingType; Item=$x.Item
+                                Reference=$x.Reference; ReferencedHost=$x.ReferencedHost; SourceFile=$x.SourceFile
+                                ReferencesThisServer=[bool]($mine.Contains($x.ReferencedHost) -or $mine.Contains($hostLabel))
+                            }); $gpoRefCount++
+                        }
+                    } catch { }
+                }
+            } catch { $readable = $false }
+            $inv.Add([pscustomobject]@{
+                GpoName=$display; GpoGuid=$guid; LinkCount=$linked.Count; IsLinked=[bool]$linked.Count; LinkedTo=((@($linked | Select-Object -First 5)) -join '; ')
+                UserSettingsDisabled=[bool]($flags -band 1); ComputerSettingsDisabled=[bool]($flags -band 2)
+                WhenChanged=(Normalize-DateTime $g.Properties['whenchanged'][0]); SysvolReadable=$readable
+                ServerReferenceCount=$gpoRefCount; HasGppPasswords=$pwd
+            })
+        }
+    } catch { return $null }
+    return @{ Inventory=@($inv); References=@($refs); Capped=$capped }
+}
+
+#endregion
 
 function Invoke-DiscoveryCollection {
     param([object]$Context)
@@ -215,6 +348,20 @@ function Invoke-DiscoveryCollection {
         if ($null -eq $inv) { Add-Limitation -Context $Context -Module 'ActiveDirectory' -Message 'Domain controller inventory could not be read over LDAP.' | Out-Null }
         else { $dcInventory = @($inv) }
     }
+
+    # GPO content (SYSVOL). DCs read it locally; members only in Deep mode, since it is a network read of every GPO.
+    $gpoInv = @(); $gpoRefs = @()
+    if ($partOfDomain -and ($isDc -or $Context.Mode -eq 'Deep')) {
+        $addrs = @()
+        try { if ($Context.DataSets.Contains('IPConfiguration')) { $addrs = @($Context.DataSets['IPConfiguration'].Rows | ForEach-Object { (([string]$_.AllIPv4Addresses) -split ',') + @([string]$_.IPv4Address) } | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Select-Object -Unique) } } catch { }
+        $gi = Get-GpoContentInspection -Context $Context -MyNames @($env:COMPUTERNAME, $cs.DNSHostName, ('{0}.{1}' -f $cs.DNSHostName, $domainName)) -MyAddresses $addrs
+        if ($null -eq $gi) { Add-Limitation -Context $Context -Module 'ActiveDirectory' -Message 'Group Policy objects could not be read (LDAP/SYSVOL); GPO references to servers are unknown.' | Out-Null }
+        else {
+            $gpoInv = @($gi.Inventory); $gpoRefs = @($gi.References)
+            if ($gi.Capped) { Add-Limitation -Context $Context -Module 'ActiveDirectory' -Message 'GPO content inspection stopped at its cap (1000 GPOs / 120 s); some GPOs were not inspected.' -Impact 'Partial GPO coverage' | Out-Null }
+            foreach ($r in @($gpoRefs | Where-Object { $_.ReferencesThisServer })) { Add-DependencyEdge -Context $Context -SourceType 'Group Policy' -SourceName $r.GpoName -DependencyType ('References ({0})' -f $r.SettingType) -Target $r.Reference -Evidence ('{0} {1}' -f $r.Scope, $r.SourceFile) -Confidence 'Confirmed' -SourceDataset 'GpoServerReferences' -ProjectImpact 'Cutover Complexity' -ValidationQuestion 'Which users or computers receive this policy, and what replaces the path it points at?' | Out-Null }
+        }
+    }
     $dcCount = if ($dcInventory.Count -gt 0) { $dcInventory.Count } else { $null }
     $replFailures = (@($replRows | Where-Object { $_.Direction -eq 'Destination' }) | Measure-Object -Property Fails -Sum).Sum
 
@@ -273,7 +420,7 @@ function Invoke-DiscoveryCollection {
         }
     } catch { Add-Limitation -Context $Context -Module 'ActiveDirectory' -Message 'gpresult failed.' -Reason $_.Exception.Message | Out-Null }
 
-    return ,@{ DomainContext=@($ctxRows); AppliedGroupPolicy=@($gpos); DomainControllerDiscovery=@($dcs); AdDomainControllers=@($dcInventory); AdFsmoRoles=@($fsmoRows); AdReplicationSummary=@($replRows); AdHealthChecks=@($health) }
+    return ,@{ DomainContext=@($ctxRows); AppliedGroupPolicy=@($gpos); DomainControllerDiscovery=@($dcs); AdDomainControllers=@($dcInventory); AdFsmoRoles=@($fsmoRows); AdReplicationSummary=@($replRows); AdHealthChecks=@($health); GpoInventory=$gpoInv; GpoServerReferences=$gpoRefs }
 }
 
 function ConvertTo-DiscoveryDatasets {
@@ -287,6 +434,8 @@ function ConvertTo-DiscoveryDatasets {
     Add-DataSet -Context $Context -Name 'AdFsmoRoles'          -Description 'FSMO role holders (netdom query fsmo, DCs only).' -Rows (& $get 'AdFsmoRoles') -Visibility 'Internal' -SourceModule 'ActiveDirectory' | Out-Null
     Add-DataSet -Context $Context -Name 'AdReplicationSummary' -Description 'repadmin /replsummary per DSA (DCs only).' -Rows (& $get 'AdReplicationSummary') -Visibility 'Internal' -SourceModule 'ActiveDirectory' | Out-Null
     Add-DataSet -Context $Context -Name 'AdHealthChecks'       -Description 'dcdiag /q failures (DCs, Deep mode only).' -Rows (& $get 'AdHealthChecks') -Visibility 'Internal' -SourceModule 'ActiveDirectory' | Out-Null
+    Add-DataSet -Context $Context -Name 'GpoInventory'         -Description 'Group Policy objects: links, state, server-reference count, stored-password (cpassword) presence - never the value.' -Rows (& $get 'GpoInventory') -Visibility 'Internal' -SourceModule 'ActiveDirectory' | Out-Null
+    Add-DataSet -Context $Context -Name 'GpoServerReferences'  -Description 'Server names and UNC paths referenced by GPO settings (drive maps, printers, scripts, folder redirection, ...).' -Rows (& $get 'GpoServerReferences') -Visibility 'Internal' -SourceModule 'ActiveDirectory' | Out-Null
 }
 
-Export-ModuleMember -Function 'Get-DiscoveryModuleMetadata','Test-DiscoveryPrerequisites','Invoke-DiscoveryCollection','ConvertTo-DiscoveryDatasets','ConvertTo-AdFunctionalLevelName','Test-AdDcOsUnsupported','ConvertFrom-NetdomFsmo','ConvertFrom-RepadminReplSummary','Get-AdDcInventory'
+Export-ModuleMember -Function 'Get-DiscoveryModuleMetadata','Test-DiscoveryPrerequisites','Invoke-DiscoveryCollection','ConvertTo-DiscoveryDatasets','ConvertTo-AdFunctionalLevelName','Test-AdDcOsUnsupported','ConvertFrom-NetdomFsmo','ConvertFrom-RepadminReplSummary','Get-AdDcInventory','Get-GpoHostFromText','Get-GpoFileReferences','Get-GpoContentInspection'

@@ -33,12 +33,13 @@ Still open from that round:
   from `Get-ExchangeCmdletInventory` and the anonymous-relay `Get-ADPermission` probe's speed.
 - **Sage / Actian live test.** Stack patterns follow published product names; confirm against a
   real Sage 300 CRE install (server, client, Pervasive license service, Timberline Data driver).
-- **GPO references to server names / UNC paths** were not added: the toolkit has no safe GPO
-  content inspection today (only `gpresult` names). Needs a design for reading GPO XML read-only.
-- **Fleet pass-through of opt-in switches** (`-CopyExchangeRawLogs`, `-IncludeSensitiveEvidence`,
+- **GPO content inspection (done 2026-10-13):** verified live against an unlinked lab test GPO
+  (`Lab GPP Reference Test (unlinked)`, safe to delete) - drive map, printer, logon script and a fake
+  cpassword. Not yet seen: a large domain near the 1000-GPO / 120 s caps.
+- **Fleet pass-through of opt-in switches** (deferred by the user 2026-10-13, saved for later) (`-CopyExchangeRawLogs`, `-IncludeSensitiveEvidence`,
   `-HypervisorInventoryPath`) is deliberately not implemented: raw email metadata from many servers
   in one pull is the wrong default. Revisit only on request.
-- **Native VMware collection** is out of scope by design (would need a hypervisor credential);
+- **Native VMware collection** (deferred by the user 2026-10-13, saved for later) is out of scope by design (would need a hypervisor credential);
   import an export with `-HypervisorInventoryPath` instead.
 
 ---

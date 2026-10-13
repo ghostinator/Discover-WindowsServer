@@ -274,6 +274,7 @@ function Write-InternalMarkdownReport {
         'Domain controllers'            = 'AdDomainControllers'
         'FSMO roles'                    = 'AdFsmoRoles'
         'DHCP summary'                  = 'DhcpServerSummary'
+        'Group Policy server references' = 'GpoServerReferences'
         'Time synchronisation'          = 'TimeSync'
         'Non-Microsoft services'        = @{ Dataset = 'Services'; Filter = { $_.IsNonMicrosoftAutoStart } }
         'Non-Microsoft scheduled tasks' = @{ Dataset = 'ScheduledTasks'; Filter = { [string]$_.TaskPath -notlike '\Microsoft\*' } }

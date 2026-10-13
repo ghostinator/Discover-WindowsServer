@@ -316,6 +316,13 @@ function Get-FleetCorrelations {
         foreach ($d in (& $ds 'MappedDrives')) { $ref = Resolve-FleetServerReference -Text ([string]$d.RemotePath) -ServerNames $names -AddressMap $addr; if ($ref -and $ref -ne $d.ComputerName) { [pscustomobject]@{ SourceServer=$d.ComputerName; Kind='Mapped drive'; Item=$d.DriveLetter; ReferencesServer=$ref; TargetIsRetiring=(& $isRetiring $ref); Evidence=$d.RemotePath } } }
         foreach ($s in (& $ds 'IisSites' | Where-Object { $_.PathIsUnc })) { $ref = Resolve-FleetServerReference -Text ([string]$s.PhysicalPath) -ServerNames $names -AddressMap $addr; if ($ref) { [pscustomobject]@{ SourceServer=$s.ComputerName; Kind='IIS site content'; Item=$s.Name; ReferencesServer=$ref; TargetIsRetiring=(& $isRetiring $ref); Evidence=$s.PhysicalPath } } }
     )
+    # GPOs are domain-wide, so every scanning member reports the same references: dedupe by GPO + reference.
+    $gpo = @(foreach ($g in (@(& $ds 'GpoServerReferences') | Group-Object { '{0}|{1}' -f $_.GpoGuid, $_.Reference })) {
+        $r = $g.Group[0]
+        $ref = Resolve-FleetServerReference -Text ([string]$r.ReferencedHost) -ServerNames $names -AddressMap $addr
+        if (-not $ref) { continue }
+        [pscustomobject]@{ Gpo=$r.GpoName; Linked=$r.GpoLinked; Scope=$r.Scope; SettingType=$r.SettingType; Item=$r.Item; Reference=$r.Reference; ReferencesServer=$ref; TargetIsRetiring=(& $isRetiring $ref); SeenFrom=((@($g.Group | ForEach-Object { $_.ComputerName } | Select-Object -Unique)) -join ', ') }
+    })
     $retiringIps = @($addr.Keys | Where-Object { & $isRetiring $addr[$_] })
     $dns = @(
         foreach ($ip in (& $ds 'IPConfiguration')) { foreach ($d in (([string]$ip.DnsServers) -split ',')) { $d = $d.Trim(); if ($d -and $retiringIps -contains $d -and $addr[$d] -ne $ip.ComputerName) { [pscustomobject]@{ Server=$ip.ComputerName; Reference='Uses DNS server'; RetiringServer=$addr[$d]; Detail=('{0} on {1}' -f $d, $ip.InterfaceAlias) } } } }
@@ -351,6 +358,7 @@ function Get-FleetCorrelations {
         OdbcReferences = @($odbc)
         SharedPathReferences = @($paths)
         SimilarShareNames = $shares
+        GpoReferences = $gpo
         DnsReferencesToRetiring = @($dns)
         SmtpClients = @($smtp)
         DomainControllers = $dcDeps
@@ -548,6 +556,7 @@ function Get-FleetCorrelationSections {
         @{ Title='Shared-path references to other fleet servers'; Rows=$c.SharedPathReferences; Note='Scheduled tasks, mapped drives and IIS content that reach another scanned server by name or IP.' }
         @{ Title='Similar share names across servers'; Rows=$c.SimilarShareNames; Note='The same share name on a source and a target (or an _old / dated copy) may be an existing target share or an earlier partial migration.' }
         @{ Title='DNS references to retiring servers'; Rows=$c.DnsReferencesToRetiring; Note='' }
+        @{ Title='Group Policy references to fleet servers'; Rows=$c.GpoReferences; Note='Drive maps, printers, scripts and folder redirection that name a scanned server. Deduplicated across the servers that read them.' }
         @{ Title='SMTP relay clients'; Rows=$c.SmtpClients; Note='From existing logs only. Absence here is not proof that nothing relays.' }
         @{ Title='Domain controllers'; Rows=$c.DomainControllers; Note='' }
         @{ Title='Entra Connect servers'; Rows=$c.EntraConnect; Note=[string]$c.EntraConnectNote }

@@ -43,6 +43,10 @@ existing collectors, reports, CLI, GUI and fleet rollup. Full guide:
   scheduler, last run, PTA agent, updater, Health agents, Seamless SSO indicator, sync errors.
 - **ActiveDirectory** - DC inventory over LDAP (OS, site, GC, RODC, support status), FSMO per role,
   repadmin replication summary, SYSVOL replication engine, dcdiag (Deep), single-DC and all-FSMO flags.
+- **Group Policy content inspection** (ActiveDirectory): GPO inventory with links, and server/UNC
+  references from Preference XML, logon/startup scripts, folder redirection and Registry.pol, read
+  from SYSVOL; GPP stored passwords are detected as present, never read. Fleet rollup flags GPO
+  references to retiring servers.
 - **DHCP** (options, failover, lease counts, AD authorization), **DNS** (conditional-forwarder
   targets, static zones), **EventLogs** (errors/warnings per workload area), **HyperV**
   (unattached VHD/ISO files), **VendorAgents** (print management, more RMMs), **BackupDR**

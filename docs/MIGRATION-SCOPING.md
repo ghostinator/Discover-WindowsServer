@@ -19,6 +19,7 @@ hard-coded anywhere.
 | Printing | `PrintServer` | Print servers, RDS hosts | `Printers`, `PrintPorts`, `PrinterDrivers`, `PrintActivity`, `PrinterConnections`, `PrintServerSummary` |
 | Entra Connect | `AzureHybrid` | The sync server, PTA agent hosts | `EntraConnectDetail`, `HybridIdentity` |
 | AD readiness | `ActiveDirectory` (+ `DNS`, `DHCP`, `TimeSync`) | DCs (most detail), any domain member (DC inventory) | `DomainContext`, `AdDomainControllers`, `AdFsmoRoles`, `AdReplicationSummary`, `AdHealthChecks`, `DnsZones`, `DhcpServerSummary`, `DhcpOptions`, `DhcpFailover`, `TimeSync` |
+| Group Policy content | `ActiveDirectory` | DCs (always), domain members in Deep mode | `GpoInventory`, `GpoServerReferences` |
 | Workload / target capacity | `WorkloadProfile` (new, runs last) | Every server | `WorkloadProfile` |
 | Services, tasks, ports, events | `ServicesTasks`, `Network`, `EventLogs` | Every server | `Services`, `ScheduledTasks`, `ListeningPorts`, `EstablishedConnections`, `EventLogDependencyAreas` |
 | Hypervisor decommissioning | `HyperV`, `HypervisorInventory` (new, import only) | Hyper-V hosts; any host with an exported VMware/RMM inventory | `HyperVVMs`, `HyperVUnattachedFiles`, `ExternalHypervisorVMs`, `HypervisorInventorySummary`, `DecommissionStates` |
@@ -123,6 +124,23 @@ notes or custom attributes never reach the output).
 Give rows from different systems different `Source` values (`vCenter`, `RMM`); a per-host VM-count
 disagreement between sources is reported as a conflict.
 
+## Group Policy references
+
+The ActiveDirectory collector lists every GPO over LDAP (name, enabled state, links - a disabled
+link counts as unlinked) and reads its SYSVOL folder **read-only**: Group Policy Preference XML
+(drive maps, printers, shortcuts, files, folders, scheduled tasks, ODBC data sources, registry,
+environment variables, INI files, services, local groups, network shares), `scripts.ini` /
+`psscripts.ini` command lines, folder-redirection `fdeploy*.ini` and `Registry.pol`
+(scanned for UNC paths only). Every UNC path or server-valued attribute becomes a
+`GpoServerReferences` row; `ReferencesThisServer` is set when it names this server by host
+name, FQDN or IP. The fleet rollup resolves the same references against every scanned server and
+flags those pointing at retiring servers (deduplicated, because every member sees the same GPOs).
+
+It runs on domain controllers (local SYSVOL) and, in Deep mode, on members (a network read).
+Bounds: 1000 GPOs, 5 MB per file, 120 seconds. Never collected: `cpassword`/password attributes
+(a non-empty `cpassword` only sets `GpoInventory.HasGppPasswords` and raises RULE-GPO-003)
+and script `Parameters` lines. No GPMC or RSAT module is needed, and nothing is written.
+
 ## Decommission states
 
 `DecommissionStates` lists which of these apply, with evidence and a next step: *Active VMs
@@ -139,7 +157,7 @@ addition to its source module, evidence, confidence, project impact and validati
 Normalized categories: Application compatibility, Database migration, ODBC dependency, IIS
 dependency, SMTP relay, Exchange decommissioning, Entra Connect relocation, AD role migration,
 DNS cutover, DHCP cutover, File migration, Printer migration, Target capacity, Backup readiness,
-Unsupported software, Hypervisor decommissioning, Incomplete discovery. See
+Unsupported software, Hypervisor decommissioning, Incomplete discovery, Group Policy dependency. See
 [RISK-SCORING.md](RISK-SCORING.md).
 
 ## Privacy and safety notes

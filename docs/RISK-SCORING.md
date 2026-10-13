@@ -39,7 +39,7 @@ prefix (DNS/DHCP/print/ODBC/backup/time rules) or the rule's `category`. The nor
 Application compatibility, Database migration, ODBC dependency, IIS dependency, SMTP relay, Exchange
 decommissioning, Entra Connect relocation, AD role migration, DNS cutover, DHCP cutover, File
 migration, Printer migration, Target capacity, Backup readiness, Unsupported software, Hypervisor
-decommissioning, Incomplete discovery. `Category` itself is unchanged, so compliance lenses, the
+decommissioning, Incomplete discovery, Group Policy dependency. `Category` itself is unchanged, so compliance lenses, the
 complexity rubric and the readiness subsections behave exactly as before.
 
 `ClientSafe` defaults to `true`. A rule with `"clientSafe": false` keeps its finding out of
