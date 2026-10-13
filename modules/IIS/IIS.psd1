@@ -6,7 +6,7 @@
     CompanyName       = 'Brandon Cook'
     Description       = 'IIS collector module for the Windows Server Discovery Toolkit.'
     PowerShellVersion = '5.1'
-    FunctionsToExport = @('ConvertTo-DiscoveryDatasets','Get-DiscoveryFollowUpQuestions','Get-DiscoveryModuleMetadata','Get-IisAppCmdPath','Invoke-DiscoveryCollection','Test-IisIdentityIsDomainAccount','Test-DiscoveryPrerequisites','Test-IisPresent')
+    FunctionsToExport = @('ConvertFrom-IisBindingInformation','ConvertTo-DiscoveryDatasets','Get-DiscoveryFollowUpQuestions','Get-DiscoveryModuleMetadata','Get-IisAppCmdPath','Get-IisPathAssessment','Invoke-DiscoveryCollection','Test-DiscoveryPrerequisites','Test-IisIdentityIsDomainAccount','Test-IisPresent')
     CmdletsToExport   = @()
     VariablesToExport = @()
     AliasesToExport   = @()

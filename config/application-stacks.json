@@ -1,0 +1,65 @@
+{
+  "schemaVersion": "1.0.0",
+  "description": "Multi-component application stacks recognised by the ApplicationStacks collector. Each stack lists components; each component lists evidence sources (dataset + field + regex). A hit becomes one evidence record with its own EvidenceId, so every per-server summary and fleet correlation cites the records behind it. 'role' drives the server/client correlation: Server, Client, Database, Driver, DSN, Licensing, Service, ScheduledTask, Data, Web, Process, Listener, EventLog. 'versionField' (optional) names the field on the matched row that carries a version. Version numbers are reported, never used to assume compatibility. Datasets and fields named here are verified by tests\\Invoke-ToolkitSelfCheck.ps1. Add a stack for any vendor without code changes.",
+  "stacks": [
+    {
+      "name": "Sage 300 Construction and Real Estate",
+      "vendor": "Sage",
+      "notes": "Sage 300 CRE (formerly Timberline Office) runs on the Actian/Pervasive database engine; server and client builds are expected to match per Sage's compatibility guidance, which must be confirmed with Sage for the specific versions found.",
+      "components": [
+        { "component": "Sage 300 CRE server components", "role": "Server", "sources": [
+          { "dataset": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)(Sage 300 (Construction and Real Estate|CRE)|Timberline Office).*Server", "versionField": "DisplayVersion", "confidence": "Confirmed" } ] },
+        { "component": "Sage 300 CRE client", "role": "Client", "sources": [
+          { "dataset": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)^(?!.*Server)(?=.*(Sage 300 (Construction and Real Estate|CRE)|Timberline Office))", "versionField": "DisplayVersion", "confidence": "Confirmed" } ] },
+        { "component": "DeployAatrix", "role": "Client", "sources": [
+          { "dataset": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)DeployAatrix|Aatrix", "versionField": "DisplayVersion", "confidence": "Confirmed" } ] },
+        { "component": "Sage Pervasive License Service", "role": "Licensing", "sources": [
+          { "dataset": "Services", "field": "DisplayName", "pattern": "(?i)Sage.*Licen[cs]e|Pervasive.*Licen[cs]e", "confidence": "Confirmed" },
+          { "dataset": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)Sage.*Licen[cs]e Service", "versionField": "DisplayVersion", "confidence": "Confirmed" } ] },
+        { "component": "Sage-related Windows service", "role": "Service", "sources": [
+          { "dataset": "Services", "field": "DisplayName", "pattern": "(?i)\\bSage\\b|Timberline" } ] },
+        { "component": "Sage-related scheduled task", "role": "ScheduledTask", "sources": [
+          { "dataset": "ScheduledTasks", "field": "TaskName", "pattern": "(?i)\\bSage\\b|Timberline" },
+          { "dataset": "ScheduledTasks", "field": "ActionsText", "pattern": "(?i)\\\\Sage\\b|Timberline" } ] },
+        { "component": "Sage data share or path", "role": "Data", "sources": [
+          { "dataset": "SmbShares", "field": "Name", "pattern": "(?i)\\bSage\\b|Timberline" },
+          { "dataset": "SmbShares", "field": "Path", "pattern": "(?i)\\\\Sage\\b|Timberline" } ] },
+        { "component": "Sage-related SQL instance", "role": "Database", "sources": [
+          { "dataset": "SqlInstances", "field": "Classification", "pattern": "(?i)Sage", "confidence": "Likely" } ] },
+        { "component": "Sage-related IIS site or application", "role": "Web", "sources": [
+          { "dataset": "IisSites", "field": "Name", "pattern": "(?i)\\bSage\\b|Timberline" },
+          { "dataset": "IisApplications", "field": "Path", "pattern": "(?i)sage|timberline" } ] },
+        { "component": "Timberline Data ODBC driver", "role": "Driver", "sources": [
+          { "dataset": "OdbcDrivers", "field": "Name", "pattern": "(?i)Timberline", "confidence": "Confirmed" } ] },
+        { "component": "Sage / Timberline DSN", "role": "DSN", "sources": [
+          { "dataset": "OdbcDsns", "field": "ApplicationHint", "pattern": "(?i)Sage", "confidence": "Likely" },
+          { "dataset": "UserOdbcDsns", "field": "ApplicationHint", "pattern": "(?i)Sage", "confidence": "Likely" } ] },
+        { "component": "Sage application process", "role": "Process", "sources": [
+          { "dataset": "RunningProcesses", "field": "Path", "pattern": "(?i)\\\\Sage\\b|Timberline" } ] },
+        { "component": "Sage event-log errors", "role": "EventLog", "sources": [
+          { "dataset": "EventLogDependencyAreas", "field": "Area", "pattern": "^Sage" } ] }
+      ]
+    },
+    {
+      "name": "Actian Zen / Pervasive PSQL",
+      "vendor": "Actian",
+      "notes": "Btrieve/PSQL engine used by several line-of-business products. Engine and client versions are reported per server; whether a given client build supports a given engine build is a vendor question.",
+      "components": [
+        { "component": "Actian / Pervasive server engine", "role": "Server", "sources": [
+          { "dataset": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)(Actian (PSQL|Zen)|Pervasive PSQL).*(Server|Enterprise|Workgroup|Engine)", "versionField": "DisplayVersion", "confidence": "Confirmed" },
+          { "dataset": "Services", "field": "DisplayName", "pattern": "(?i)Actian (PSQL|Zen).*(Engine|Relational|Transactional)|Pervasive PSQL (Relational|Transactional|Workgroup)", "confidence": "Confirmed" } ] },
+        { "component": "Actian Zen / Pervasive client", "role": "Client", "sources": [
+          { "dataset": "InstalledApplications", "field": "DisplayName", "pattern": "(?i)(Actian (PSQL|Zen)|Pervasive PSQL).*Client", "versionField": "DisplayVersion", "confidence": "Confirmed" } ] },
+        { "component": "Pervasive / Actian ODBC driver", "role": "Driver", "sources": [
+          { "dataset": "OdbcDrivers", "field": "Name", "pattern": "(?i)Pervasive|Actian|\\bZen\\b", "confidence": "Confirmed" } ] },
+        { "component": "Pervasive / Actian DSN", "role": "DSN", "sources": [
+          { "dataset": "OdbcDsns", "field": "ApplicationHint", "pattern": "(?i)Actian", "confidence": "Likely" },
+          { "dataset": "UserOdbcDsns", "field": "ApplicationHint", "pattern": "(?i)Actian", "confidence": "Likely" } ] },
+        { "component": "Actian / Pervasive listener", "role": "Listener", "sources": [
+          { "dataset": "ListeningPorts", "field": "LocalPort", "pattern": "^(1583|3351)$" } ] },
+        { "component": "Actian / Pervasive event-log errors", "role": "EventLog", "sources": [
+          { "dataset": "EventLogDependencyAreas", "field": "Area", "pattern": "^Actian" } ] }
+      ]
+    }
+  ]
+}

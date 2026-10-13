@@ -60,6 +60,7 @@ function Get-DiscoveryConfigBundle {
         Redaction     = Import-DiscoveryConfig -Path (& $join 'redaction-patterns.json')
         RiskRules     = Import-DiscoveryConfig -Path (& $join 'risk-rules.json')
         Fingerprints  = Import-DiscoveryConfig -Path (& $join 'application-fingerprints.json')
+        AppStacks     = Import-DiscoveryConfig -Path (& $join 'application-stacks.json')
         Compliance    = Import-DiscoveryConfig -Path (& $join 'compliance-lenses.json')
         Output        = Merge-LocalBranding -Output (Import-DiscoveryConfig -Path (& $join 'output-settings.json')) -BrandingDirectory $BrandingDirectory
         ConfigDir     = $ConfigDirectory
@@ -592,6 +593,96 @@ function Protect-DatasetRows {
 
 #endregion
 
+#region ODBC helpers (shared by SQL system DSNs and UserProfiles user DSNs) ---
+
+# Attribute names that carry credentials. Matched exactly (case-insensitive) on top of the
+# generic Test-SensitiveKeyLabel check, because short names like PWD/UID slip past substring rules.
+$script:OdbcCredentialAttributes = @('PWD','Password','UID','User','UserID','User ID','LogonID','Logon ID','Username','LastUser','Last User','TrustedConnectionPassword','EncryptedPassword','Encrypted Password','OpenKey','Key')
+# Registry plumbing PowerShell adds to Get-ItemProperty output.
+$script:OdbcProviderProperties = @('PSPath','PSParentPath','PSChildName','PSDrive','PSProvider')
+# Application families recognised from DSN name / driver / description - evidence hints, not proof.
+$script:OdbcApplicationHints = [ordered]@{
+    'Sage / Timberline'    = '(?i)\bsage\b|timberline|\bTSData|\bSTO\b'
+    'Actian / Pervasive'   = '(?i)pervasive|actian|\bpsql\b|btrieve|zen\b'
+    'Backup Exec'          = '(?i)backup ?exec|bkupexec'
+    'Microsoft Access'     = '(?i)access driver|\.mdb\b|\.accdb\b'
+    'Excel / text files'   = '(?i)excel driver|text driver|\.xlsx?\b|\.csv\b'
+}
+
+function ConvertTo-OdbcDsnRecord {
+    <#
+        Pure: turns one DSN's registry properties (a hashtable or the object Get-ItemProperty returns)
+        into a secret-free row. Credential attributes (PWD, UID, Password, ...) are DROPPED, never
+        redacted-and-kept: the name of the attribute that held a password is not scoping evidence.
+        SafeAttributes keeps the remaining non-secret attributes as 'name=value' text.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$DsnName,
+        $Properties,
+        [string]$Scope = 'System',
+        [string]$Bitness = '64',
+        [string]$Account = '',
+        [string]$LocalComputerName = $env:COMPUTERNAME,
+        [object]$Context
+    )
+    $attrs = [ordered]@{}
+    if ($Properties -is [System.Collections.IDictionary]) { foreach ($k in $Properties.Keys) { $attrs[[string]$k] = $Properties[$k] } }
+    elseif ($null -ne $Properties) { foreach ($p in $Properties.PSObject.Properties) { $attrs[$p.Name] = $p.Value } }
+    $safe = [ordered]@{}
+    foreach ($k in $attrs.Keys) {
+        if ($script:OdbcProviderProperties -contains $k) { continue }
+        if ($script:OdbcCredentialAttributes -contains $k) { continue }
+        if (Test-SensitiveKeyLabel -Name $k -Context $Context) { continue }
+        $safe[$k] = [string]$attrs[$k]
+    }
+    $get = { param($names) foreach ($n in $names) { foreach ($k in $safe.Keys) { if ($k -ieq $n -and $safe[$k]) { return $safe[$k] } } }; return '' }
+    $driver   = & $get @('Driver')
+    $server   = & $get @('Server','ServerName','Host','HostName','Data Source','DataSource','Address')
+    $database = & $get @('Database','DBName','Initial Catalog','DatabaseName')
+    $dbq      = & $get @('DBQ','DefaultDir','DataDirectory','Data Directory','DBF','Path','DataPath')
+    $desc     = & $get @('Description')
+    $hay = ('{0} {1} {2} {3}' -f $DsnName, $driver, $desc, $dbq)
+    $hint = ''
+    foreach ($h in $script:OdbcApplicationHints.Keys) { if ($hay -match $script:OdbcApplicationHints[$h]) { $hint = $h; break } }
+    $serverHost = (($server -split '[\\,:]')[0]).Trim()
+    $local = [bool]($serverHost -and ($serverHost -ieq $LocalComputerName -or $serverHost -ieq 'localhost' -or $serverHost -eq '.' -or $serverHost -eq '127.0.0.1' -or $serverHost -ieq '(local)' -or $serverHost -like ($LocalComputerName + '.*')))
+    $safeText = (@($safe.Keys | Where-Object { $_ -notin @('Driver','Description') } | ForEach-Object { '{0}={1}' -f $_, $safe[$_] }) -join '; ')
+    [pscustomobject]@{
+        DsnName=$DsnName; Driver=$driver; Server=$server; Database=$database; Scope=$Scope; Bitness=$Bitness
+        Account=$Account; Description=$desc; DbqOrPath=$dbq; SafeAttributes=(Redact-SensitiveValue -InputString $safeText -Context $Context)
+        IsFileBased=[bool]($dbq -or $driver -match '(?i)access|excel|text|dbase|paradox|foxpro|visual foxpro')
+        UsesUncPath=[bool]($dbq -match '^\\\\' -or $server -match '^\\\\')
+        PointsToLocalServer=$local; ApplicationHint=$hint
+        DuplicateAcrossBitness=$false; DriverInstalled=$null
+    }
+}
+
+function Set-OdbcCrossChecks {
+    <#
+        Adds the two cross-row flags to a set of DSN records in place: DuplicateAcrossBitness (the same
+        DSN name exists in both the 32- and 64-bit views for the same scope/account - the classic
+        "works for one app, not the other" trap) and DriverInstalled (the DSN's driver is registered
+        on this server). Driver rows need Name + Bitness; pass none to leave DriverInstalled $null
+        (unknown, not false).
+    #>
+    [CmdletBinding()] param($Dsns, $Drivers)
+    $rows = @($Dsns)
+    foreach ($g in ($rows | Group-Object { '{0}|{1}|{2}' -f $_.Scope, $_.Account, ([string]$_.DsnName).ToLowerInvariant() })) {
+        if (@($g.Group | Select-Object -ExpandProperty Bitness -Unique).Count -gt 1) { foreach ($r in $g.Group) { $r.DuplicateAcrossBitness = $true } }
+    }
+    $drv = @($Drivers)
+    if ($drv.Count -gt 0) {
+        foreach ($r in $rows) {
+            if (-not $r.Driver) { continue }
+            # A DSN's Driver value is either the driver's registered name or the DLL path.
+            $r.DriverInstalled = [bool](@($drv | Where-Object { $_.Bitness -eq $r.Bitness -and ($_.Name -ieq $r.Driver -or ($_.DriverPath -and $_.DriverPath -ieq $r.Driver)) }).Count -gt 0)
+        }
+    }
+}
+
+#endregion
+
 #region Structured logging ----------------------------------------------------
 
 function Write-Log {
@@ -731,7 +822,15 @@ function New-DiscoveryFinding {
         [bool]$IsEmphasized = $false,
         [string]$EmphasisReason = '',
         [string]$SourceModule = '',
-        [string]$SourceDataset = ''
+        [string]$SourceDataset = '',
+        # Normalized risk-register category (Database migration, SMTP relay, ...). Category stays
+        # the rule's own category so lenses and the complexity rubric keep working; this is the
+        # cross-cutting label the risk register and the fleet rollup group by.
+        [string]$RiskCategory = '',
+        # Whether Title + WhyItMattersForScoping may appear in a client deliverable. Evidence never
+        # does, whatever this says.
+        [bool]$ClientSafe = $true,
+        [string]$SourceServer = $env:COMPUTERNAME
     )
     return [pscustomobject]@{
         FindingId                   = $FindingId
@@ -757,6 +856,9 @@ function New-DiscoveryFinding {
         EmphasisReason              = $EmphasisReason
         SourceModule                = $SourceModule
         SourceDataset               = $SourceDataset
+        RiskCategory                = $RiskCategory
+        ClientSafe                  = $ClientSafe
+        SourceServer                = $SourceServer
     }
 }
 
@@ -882,7 +984,9 @@ function Add-Finding {
         [bool]$IsEmphasized = $false,
         [string]$EmphasisReason = '',
         [string]$SourceModule = '',
-        [string]$SourceDataset = ''
+        [string]$SourceDataset = '',
+        [string]$RiskCategory = '',
+        [bool]$ClientSafe = $true
     )
     $Context.Counters.Findings++
     $id = "FIND-{0:D4}" -f $Context.Counters.Findings
@@ -891,7 +995,8 @@ function Add-Finding {
         -PotentialProjectImpact $PotentialProjectImpact -SuggestedValidationQuestion $SuggestedValidationQuestion `
         -SuggestedScopeLanguage $SuggestedScopeLanguage -LikelyAffectedWBSAreas $LikelyAffectedWBSAreas `
         -ComplianceRelevance $ComplianceRelevance -Subject $Subject -IsEmphasized $IsEmphasized -EmphasisReason $EmphasisReason `
-        -SourceModule $SourceModule -SourceDataset $SourceDataset
+        -SourceModule $SourceModule -SourceDataset $SourceDataset -RiskCategory $RiskCategory -ClientSafe $ClientSafe `
+        -SourceServer ([string]$Context.ComputerName)
     $Context.Findings.Add($finding)
     return $finding
 }
@@ -1054,7 +1159,7 @@ Export-ModuleMember -Function `
     'Ensure-Directory','ConvertTo-SafeFileName','Test-IsAdministrator','Test-IsSystem', `
     'Get-CommandAvailable','Get-ModuleAvailable','Get-RegistryValueSafe','Test-RegistryPathSafe', `
     'Invoke-CimSafe','Invoke-CommandLineSafe','Invoke-WindowsPowerShellJson','Test-WindowsPowerShellModule','Convert-BytesToGB','Convert-BytesToMB','Normalize-DateTime', `
-    'Test-SensitiveKeyLabel','Redact-SensitiveValue','Write-Log','Write-SectionStatus', `
+    'Test-SensitiveKeyLabel','Redact-SensitiveValue','ConvertTo-OdbcDsnRecord','Set-OdbcCrossChecks','Write-Log','Write-SectionStatus', `
     'New-DiscoveryDataset','New-DiscoveryFinding','New-ScopingRisk','New-FollowUpQuestion','New-DependencyEdge', `
     'Add-DataSet','Add-Finding','Add-Limitation','Add-Unknown','Add-FollowUpQuestion','Add-ScopeLanguage', `
     'Add-DependencyEdge','Add-ModuleStatus','Update-StatusFile'

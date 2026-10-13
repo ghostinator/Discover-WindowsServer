@@ -6,10 +6,10 @@
 
 function Get-DiscoveryModuleMetadata {
     [pscustomobject]@{
-        ModuleName='ActiveDirectory'; DisplayName='Active Directory / Domain Context'; Category='Identity'; Version='1.0.0'
+        ModuleName='ActiveDirectory'; DisplayName='Active Directory & Migration Readiness'; Category='Identity'; Version='1.0.0'
         DefaultInFast=$true; DefaultInDeep=$true; RequiresAdmin=$false; RequiresDomainContext=$false
         RequiresRole=$null; EstimatedImpact='Low'; CanRunAsSystem=$true
-        ProducesDatasets=@('DomainContext','AppliedGroupPolicy','DomainControllerDiscovery')
+        ProducesDatasets=@('DomainContext','AppliedGroupPolicy','DomainControllerDiscovery','AdDomainControllers','AdFsmoRoles','AdReplicationSummary','AdHealthChecks')
         ProducesRisks=$true; ProducesFollowUpQuestions=$false; SupportsDeepMode=$true; SupportsComplianceLens=$true
     }
 }
@@ -23,10 +23,90 @@ function ConvertTo-AdFunctionalLevelName {
     <# Maps the numeric domainFunctionality/forestFunctionality RootDSE attribute to its name. #>
     param($Level)
     if ($null -eq $Level) { return '' }
-    $names = @{ 0='Windows2000'; 1='Windows2003Interim'; 2='Windows2003'; 3='Windows2008'; 4='Windows2008R2'; 5='Windows2012'; 6='Windows2012R2'; 7='Windows2016' }
+    $names = @{ 0='Windows2000'; 1='Windows2003Interim'; 2='Windows2003'; 3='Windows2008'; 4='Windows2008R2'; 5='Windows2012'; 6='Windows2012R2'; 7='Windows2016'; 10='Windows2025' }
     $n = 0
     if ([int]::TryParse([string]$Level, [ref]$n) -and $names.ContainsKey($n)) { return $names[$n] }
     return ("Level{0}" -f $Level)
+}
+
+function Test-AdDcOsUnsupported {
+    <# Pure: true when a DC's operatingSystem string is past Microsoft extended support as of -AsOf. Unknown text is never called unsupported. #>
+    param([string]$OperatingSystem, [datetime]$AsOf = (Get-Date))
+    $ends = [ordered]@{ '2003'='2015-07-14'; '2008'='2020-01-14'; '2012'='2023-10-10'; '2016'='2027-01-12'; '2019'='2029-01-09'; '2022'='2031-10-14' }
+    foreach ($k in $ends.Keys) { if ($OperatingSystem -match ("Server\D*{0}" -f $k)) { return ([datetime]$ends[$k] -lt $AsOf) } }
+    return $false
+}
+
+function ConvertFrom-NetdomFsmo {
+    <# Pure: netdom query fsmo text -> one row per role with whole-host-label ownership matching. #>
+    param([string]$Text, [string[]]$MyNames = @($env:COMPUTERNAME))
+    $rows = [System.Collections.Generic.List[object]]::new()
+    foreach ($ln in ([string]$Text -split "`r?`n")) {
+        $m = [regex]::Match($ln, '^\s*(Schema master|Domain naming master|PDC|RID pool manager|Infrastructure master)\s+(\S+)\s*$', 'IgnoreCase')
+        if (-not $m.Success) { continue }
+        $holder = $m.Groups[2].Value
+        $mine = $false
+        foreach ($n in @($MyNames | Where-Object { $_ })) { if ($holder -match ('(?i)^' + [regex]::Escape($n) + '(\.|$)')) { $mine = $true } }
+        $rows.Add([pscustomobject]@{ Role=$m.Groups[1].Value; Holder=$holder; HeldByThisServer=$mine })
+    }
+    return ,@($rows)
+}
+
+function ConvertFrom-RepadminReplSummary {
+    <# Pure: repadmin /replsummary text -> one row per source/destination DSA. #>
+    param([string]$Text)
+    $rows = [System.Collections.Generic.List[object]]::new()
+    $direction = ''
+    foreach ($ln in ([string]$Text -split "`r?`n")) {
+        if ($ln -match '^\s*Source DSA') { $direction = 'Source'; continue }
+        if ($ln -match '^\s*Destination DSA') { $direction = 'Destination'; continue }
+        if (-not $direction) { continue }
+        # The delta column can contain a space ('>60 days'), so it is matched lazily.
+        $m = [regex]::Match($ln, '^\s*(\S+)\s+(.+?)\s+(\d+)\s*/\s*(\d+)\s+\d+\s*(.*)$')
+        if ($m.Success) { $rows.Add([pscustomobject]@{ Direction=$direction; Dsa=$m.Groups[1].Value; LargestDelta=$m.Groups[2].Value; Fails=[int]$m.Groups[3].Value; Total=[int]$m.Groups[4].Value; Error=$m.Groups[5].Value.Trim() }) }
+    }
+    return ,@($rows)
+}
+
+function Get-AdDcInventory {
+    <#
+        Every DC in the domain via plain LDAP reads (no RSAT / ActiveDirectory module): computer
+        objects in the DC/RODC primary groups for name + OS, then nTDSDSA objects in the
+        configuration partition for site and Global Catalog. Returns $null when the directory
+        cannot be read, so callers can tell "no DCs found" from "could not ask".
+    #>
+    param()
+    try {
+        $root = [ADSI]'LDAP://RootDSE'
+        $defaultNc = [string]$root.Properties['defaultNamingContext'][0]
+        $configNc = [string]$root.Properties['configurationNamingContext'][0]
+        if (-not $defaultNc) { return $null }
+        $byName = @{}
+        $s = New-Object System.DirectoryServices.DirectorySearcher([ADSI]"LDAP://$defaultNc", '(&(objectCategory=computer)(|(primaryGroupID=516)(primaryGroupID=521)))')
+        $s.PageSize = 200; $s.ClientTimeout = [TimeSpan]::FromSeconds(30)
+        foreach ($p in 'name','dNSHostName','operatingSystem','operatingSystemVersion','primaryGroupID') { [void]$s.PropertiesToLoad.Add($p) }
+        foreach ($r in $s.FindAll()) {
+            $n = [string]$r.Properties['name'][0]
+            $byName[$n.ToUpperInvariant()] = [pscustomobject]@{
+                Name=$n; DnsHostName=[string]$r.Properties['dnshostname'][0]; OperatingSystem=[string]$r.Properties['operatingsystem'][0]
+                OperatingSystemVersion=[string]$r.Properties['operatingsystemversion'][0]; Site=''; IsGlobalCatalog=$false
+                IsReadOnly=[bool]([int]$r.Properties['primarygroupid'][0] -eq 521); IsThisServer=[bool]($n -ieq $env:COMPUTERNAME)
+                IsUnsupportedOs=(Test-AdDcOsUnsupported -OperatingSystem ([string]$r.Properties['operatingsystem'][0]))
+            }
+        }
+        if ($configNc) {
+            $d = New-Object System.DirectoryServices.DirectorySearcher([ADSI]"LDAP://CN=Sites,$configNc", '(objectCategory=nTDSDSA)')
+            $d.PageSize = 200; $d.ClientTimeout = [TimeSpan]::FromSeconds(30)
+            [void]$d.PropertiesToLoad.Add('distinguishedName'); [void]$d.PropertiesToLoad.Add('options')
+            foreach ($r in $d.FindAll()) {
+                $m = [regex]::Match([string]$r.Properties['distinguishedname'][0], '^CN=NTDS Settings,CN=([^,]+),CN=Servers,CN=([^,]+),')
+                if (-not $m.Success) { continue }
+                $dc = $byName[$m.Groups[1].Value.ToUpperInvariant()]
+                if ($dc) { $dc.Site = $m.Groups[2].Value; $dc.IsGlobalCatalog = [bool](([int]$r.Properties['options'][0]) -band 1) }
+            }
+        }
+        return ,@($byName.Values | Sort-Object Name)
+    } catch { return $null }
 }
 
 function Invoke-DiscoveryCollection {
@@ -34,6 +114,8 @@ function Invoke-DiscoveryCollection {
     $ctxRows = [System.Collections.Generic.List[object]]::new()
     $gpos = [System.Collections.Generic.List[object]]::new()
     $dcs = [System.Collections.Generic.List[object]]::new()
+    $fsmoRows = @(); $replRows = @(); $health = [System.Collections.Generic.List[object]]::new(); $dcInventory = @()
+    $sysvolReplication = ''
 
     $cs = Invoke-CimSafe -ClassName 'Win32_ComputerSystem' | Select-Object -First 1
     $domainRole = if ($cs) { [int]$cs.DomainRole } else { -1 }
@@ -48,6 +130,7 @@ function Invoke-DiscoveryCollection {
         try {
             $r = Invoke-CommandLineSafe -FilePath 'netdom.exe' -Arguments @('query','fsmo') -TimeoutSeconds 45
             if ($r.Succeeded -and $r.StdOut) {
+                $fsmoRows = ConvertFrom-NetdomFsmo -Text $r.StdOut -MyNames @($env:COMPUTERNAME, $cs.DNSHostName)
                 $me = $env:COMPUTERNAME
                 $fsmoDetail = ($r.StdOut -split "`r?`n" | Where-Object { $_.Trim() -and $_ -notmatch 'command completed' } | ForEach-Object { $_.Trim() -replace '\s{2,}',': ' } | Select-Object -First 6) -join '; '
                 # Whole host label, NetBIOS or DNS name: a bare substring match let DC1 "hold" DC10's roles.
@@ -64,6 +147,31 @@ function Invoke-DiscoveryCollection {
             }
             $dcs.Add([pscustomobject]@{ DcName=$env:COMPUTERNAME; Item='LocalDC'; Detail=("SYSVOL={0}; NETLOGON={1}; FSMO={2}" -f $sysvol, $netlogon, $fsmoDetail) })
         } catch { }
+        # Replication health (read-only summary verbs).
+        try {
+            $rr = Invoke-CommandLineSafe -FilePath 'repadmin.exe' -Arguments @('/replsummary') -TimeoutSeconds 120
+            if ($rr.Succeeded -or $rr.StdOut) { $replRows = ConvertFrom-RepadminReplSummary -Text $rr.StdOut }
+            else { Add-Limitation -Context $Context -Module 'ActiveDirectory' -Message 'repadmin /replsummary returned nothing; replication health unknown.' | Out-Null }
+        } catch { }
+        # SYSVOL replication engine: 'Eliminated' = DFSR; anything earlier means FRS is still in play.
+        try {
+            $rm = Invoke-CommandLineSafe -FilePath 'dfsrmig.exe' -Arguments @('/getmigrationstate') -TimeoutSeconds 60
+            $sysvolReplication = if ($rm.StdOut -match '(?i)Eliminated') { 'DFSR' } elseif ($rm.StdOut -match '(?i)\b(Start|Prepared|Redirected)\b') { 'FRS (migration incomplete)' } elseif ($rm.StdOut -match '(?i)not.*initiated|has not') { 'FRS' } else { 'Unknown' }
+        } catch { $sysvolReplication = 'Unknown' }
+        # dcdiag runs every default test and can take minutes on a large forest: Deep mode only, quiet (failures only).
+        if ($Context.Mode -eq 'Deep') {
+            try {
+                $rd = Invoke-CommandLineSafe -FilePath 'dcdiag.exe' -Arguments @('/q') -TimeoutSeconds 240
+                if ($rd.TimedOut) { Add-Limitation -Context $Context -Module 'ActiveDirectory' -Message 'dcdiag /q did not finish within 240 seconds.' | Out-Null }
+                else {
+                    $lines = @(($rd.StdOut -split "`r?`n") | Where-Object { $_.Trim() })
+                    $failed = @($lines | Where-Object { $_ -match '(?i)failed test' } | Select-Object -First 50)
+                    if ($lines.Count -eq 0) { $health.Add([pscustomobject]@{ Check='dcdiag /q'; Result='No failures reported'; Detail='' }) }
+                    elseif ($failed.Count -gt 0) { foreach ($f in $failed) { $health.Add([pscustomobject]@{ Check=($f.Trim() -replace '(?i)^.*failed test\s*',''); Result='Failed'; Detail=$f.Trim() }) } }
+                    else { $health.Add([pscustomobject]@{ Check='dcdiag /q'; Result='Errors reported (no failed test line)'; Detail=(($lines | Select-Object -First 4 | ForEach-Object { $_.Trim() }) -join ' | ') }) }
+                }
+            } catch { }
+        } else { Add-Unknown -Context $Context -Unknown 'dcdiag was not run (Fast mode).' -WhyItMatters 'Latent DC health problems surface during role transfer and demotion.' -Module 'ActiveDirectory' -RecommendedValidationQuestion 'Run in Deep mode, or provide recent dcdiag output, before planning DC changes.' | Out-Null }
         if (-not $holdsFsmo -and -not $fsmoDetail) { Add-Unknown -Context $Context -Unknown 'FSMO role ownership could not be determined.' -WhyItMatters 'FSMO roles must be transferred before a DC is retired.' -Module 'ActiveDirectory' -RecommendedValidationQuestion 'Which DC holds the FSMO roles?' | Out-Null }
     }
 
@@ -101,11 +209,25 @@ function Invoke-DiscoveryCollection {
         } catch { }
     }
 
+    # DC inventory from any domain member: single-DC environments, unsupported DC operating systems.
+    if ($partOfDomain) {
+        $inv = Get-AdDcInventory
+        if ($null -eq $inv) { Add-Limitation -Context $Context -Module 'ActiveDirectory' -Message 'Domain controller inventory could not be read over LDAP.' | Out-Null }
+        else { $dcInventory = @($inv) }
+    }
+    $dcCount = if ($dcInventory.Count -gt 0) { $dcInventory.Count } else { $null }
+    $replFailures = (@($replRows | Where-Object { $_.Direction -eq 'Destination' }) | Measure-Object -Property Fails -Sum).Sum
+
     $ctxRows.Add([pscustomobject]@{
         DomainName=$domainName; DomainRole=$roleName; PartOfDomain=$partOfDomain; IsDomainController=$isDc
         HoldsFsmoRole=$holdsFsmo; LogonServer=$logonServer; AdSite=($site -as [string]); DnsDomain=$env:USERDNSDOMAIN
         FsmoDetail=$fsmoDetail; DomainFunctionalLevel=$domainFuncLevel; ForestFunctionalLevel=$forestFuncLevel
         LdapSigningNotEnforced=$ldapSigningNotEnforced; LdapChannelBindingNotEnforced=$ldapChannelBindingNotEnforced
+        DomainControllerCount=$dcCount; IsOnlyDomainController=[bool]($isDc -and $dcCount -eq 1)
+        FsmoRolesHeld=@($fsmoRows | Where-Object { $_.HeldByThisServer }).Count; HoldsAllFsmoRoles=[bool](@($fsmoRows | Where-Object { $_.HeldByThisServer }).Count -ge 5)
+        UnsupportedDcCount=@($dcInventory | Where-Object { $_.IsUnsupportedOs }).Count
+        ReplicationFailures=$(if ($isDc -and $replRows.Count -gt 0) { [int]$replFailures } else { $null }); SysvolReplication=$sysvolReplication
+        SysvolOnFrs=[bool]($sysvolReplication -match '^FRS')
     })
 
     # ---- DC discovery (member or DC) ----
@@ -151,7 +273,7 @@ function Invoke-DiscoveryCollection {
         }
     } catch { Add-Limitation -Context $Context -Module 'ActiveDirectory' -Message 'gpresult failed.' -Reason $_.Exception.Message | Out-Null }
 
-    return ,@{ DomainContext=@($ctxRows); AppliedGroupPolicy=@($gpos); DomainControllerDiscovery=@($dcs) }
+    return ,@{ DomainContext=@($ctxRows); AppliedGroupPolicy=@($gpos); DomainControllerDiscovery=@($dcs); AdDomainControllers=@($dcInventory); AdFsmoRoles=@($fsmoRows); AdReplicationSummary=@($replRows); AdHealthChecks=@($health) }
 }
 
 function ConvertTo-DiscoveryDatasets {
@@ -161,6 +283,10 @@ function ConvertTo-DiscoveryDatasets {
     Add-DataSet -Context $Context -Name 'DomainContext'             -Description 'Domain membership and directory role context.' -Rows (& $get 'DomainContext')             -Visibility 'Internal' -SourceModule 'ActiveDirectory' | Out-Null
     Add-DataSet -Context $Context -Name 'AppliedGroupPolicy'        -Description 'Applied Group Policy Objects (gpresult).'      -Rows (& $get 'AppliedGroupPolicy')        -Visibility 'Internal' -SourceModule 'ActiveDirectory' | Out-Null
     Add-DataSet -Context $Context -Name 'DomainControllerDiscovery' -Description 'Domain controller discovery.'                  -Rows (& $get 'DomainControllerDiscovery') -Visibility 'Internal' -SourceModule 'ActiveDirectory' | Out-Null
+    Add-DataSet -Context $Context -Name 'AdDomainControllers'  -Description 'Every DC in the domain (LDAP): OS, site, GC, read-only, support status.' -Rows (& $get 'AdDomainControllers') -Visibility 'Internal' -SourceModule 'ActiveDirectory' | Out-Null
+    Add-DataSet -Context $Context -Name 'AdFsmoRoles'          -Description 'FSMO role holders (netdom query fsmo, DCs only).' -Rows (& $get 'AdFsmoRoles') -Visibility 'Internal' -SourceModule 'ActiveDirectory' | Out-Null
+    Add-DataSet -Context $Context -Name 'AdReplicationSummary' -Description 'repadmin /replsummary per DSA (DCs only).' -Rows (& $get 'AdReplicationSummary') -Visibility 'Internal' -SourceModule 'ActiveDirectory' | Out-Null
+    Add-DataSet -Context $Context -Name 'AdHealthChecks'       -Description 'dcdiag /q failures (DCs, Deep mode only).' -Rows (& $get 'AdHealthChecks') -Visibility 'Internal' -SourceModule 'ActiveDirectory' | Out-Null
 }
 
-Export-ModuleMember -Function 'Get-DiscoveryModuleMetadata','Test-DiscoveryPrerequisites','Invoke-DiscoveryCollection','ConvertTo-DiscoveryDatasets','ConvertTo-AdFunctionalLevelName'
+Export-ModuleMember -Function 'Get-DiscoveryModuleMetadata','Test-DiscoveryPrerequisites','Invoke-DiscoveryCollection','ConvertTo-DiscoveryDatasets','ConvertTo-AdFunctionalLevelName','Test-AdDcOsUnsupported','ConvertFrom-NetdomFsmo','ConvertFrom-RepadminReplSummary','Get-AdDcInventory'

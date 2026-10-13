@@ -6,7 +6,7 @@
     CompanyName       = 'Brandon Cook'
     Description       = 'PrintServer collector module for the Windows Server Discovery Toolkit.'
     PowerShellVersion = '5.1'
-    FunctionsToExport = @('ConvertTo-DiscoveryDatasets','Get-DiscoveryModuleMetadata','Invoke-DiscoveryCollection','Test-DiscoveryPrerequisites')
+    FunctionsToExport = @('ConvertTo-DiscoveryDatasets','Get-DiscoveryFollowUpQuestions','Get-DiscoveryModuleMetadata','Get-PrinterAssessment','Invoke-DiscoveryCollection','Test-DiscoveryPrerequisites')
     CmdletsToExport   = @()
     VariablesToExport = @()
     AliasesToExport   = @()

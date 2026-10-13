@@ -9,7 +9,7 @@ function Get-DiscoveryModuleMetadata {
         ModuleName='EventLogs'; DisplayName='Event Logs'; Category='System'; Version='1.0.0'
         DefaultInFast=$true; DefaultInDeep=$true; RequiresAdmin=$false; RequiresDomainContext=$false
         RequiresRole=$null; EstimatedImpact='Low'; CanRunAsSystem=$true
-        ProducesDatasets=@('EventLogSummary','EventLogSamples','AuditPolicySettings','AuditPolicyGaps')
+        ProducesDatasets=@('EventLogSummary','EventLogSamples','AuditPolicySettings','AuditPolicyGaps','EventLogDependencyAreas')
         ProducesRisks=$true; ProducesFollowUpQuestions=$false; SupportsDeepMode=$true; SupportsComplianceLens=$true
     }
 }
@@ -60,9 +60,38 @@ function Test-DiscoveryPrerequisites {
     [pscustomobject]@{ ModuleName='EventLogs'; CanRun=$true; Status='Ready'; Reason=''; Limitations=@() }
 }
 
+# Event provider -> migration area. Errors from these providers are dependency/health hints for
+# the matching workload; first match wins, so specific vendors come before generic platform areas
+# (SQL engine providers excepted - see below).
+$script:EventProviderAreas = [ordered]@{
+    # SQL first: an engine provider such as MSSQL$SAGE is a SQL Server event even when the instance is named for an application.
+    'SQL Server'         = '(?i)^MSSQL|SQLSERVERAGENT|SQLAgent|SQLBrowser|SQLWriter|SQLISPackage'
+    'Sage / Timberline'  = '(?i)\bsage\b|timberline'
+    'Actian / Pervasive' = '(?i)pervasive|actian|psql|btrieve|\bzen\b'
+    'Exchange'           = '(?i)^MSExchange|Exchange'
+    'IIS'                = '(?i)^(W3SVC|WAS|IIS|ASP\.NET|Microsoft-Windows-IIS)'
+    'Entra Connect'      = '(?i)ADSync|Directory Synchronization|AzureADConnect|Azure AD Connect'
+    'Active Directory'   = '(?i)^(NTDS|ActiveDirectory_DomainService|Microsoft-Windows-ActiveDirectory|NETLOGON|LsaSrv|Microsoft-Windows-GroupPolicy|Userenv)'
+    'DFS / SYSVOL'       = '(?i)^(DFSR|NtFrs|DfsSvc|Microsoft-Windows-DFSN)'
+    'DNS'                = '(?i)^(DNS|Microsoft-Windows-DNS-Server|DNS Client Events)'
+    'DHCP'               = '(?i)DHCP'
+    'Printing'           = '(?i)^(Microsoft-Windows-PrintService|Print|Spooler)'
+    'Time'               = '(?i)^(Microsoft-Windows-Time-Service|W32Time)'
+    'Backup'             = '(?i)backup|veeam|vss|wbengine|datto|acronis'
+    'Hyper-V'            = '(?i)Hyper-V'
+}
+
+function Get-EventProviderArea {
+    <# Pure: provider name -> migration area, or '' when it belongs to none. #>
+    param([string]$ProviderName)
+    foreach ($a in $script:EventProviderAreas.Keys) { if ($ProviderName -match $script:EventProviderAreas[$a]) { return $a } }
+    return ''
+}
+
 function Invoke-DiscoveryCollection {
     param([object]$Context)
     $summary=[System.Collections.Generic.List[object]]::new(); $samples=[System.Collections.Generic.List[object]]::new()
+    $areaCounts = @{}
     $days = [int]$Context.Parameters['EventLogDays']; if ($days -le 0) { $days = 14 }
     $maxSamples = [int]$Context.Parameters['MaxEventSamplesPerLog']; if ($maxSamples -le 0) { $maxSamples = 50 }
     if ($Context.Mode -eq 'Fast' -and $maxSamples -gt 25) { $maxSamples = 25 }
@@ -108,6 +137,14 @@ function Invoke-DiscoveryCollection {
             }
         }
         $flagged = @(if ($isSecurity) { $events } else { $events | Where-Object { $_.Level -in @(1,2) } })
+        if (-not $isSecurity) {
+            foreach ($g in ($events | Group-Object ProviderName)) {
+                $area = Get-EventProviderArea -ProviderName $g.Name
+                if (-not $area) { continue }
+                $key = '{0}|{1}|{2}' -f $area, $log, $g.Name
+                $areaCounts[$key] = [pscustomobject]@{ Area=$area; LogName=$log; ProviderName=$g.Name; ErrorCount=@($g.Group | Where-Object { $_.Level -in @(1,2) }).Count; WarningCount=@($g.Group | Where-Object { $_.Level -eq 3 }).Count; LastSeen=(Normalize-DateTime (($g.Group | Sort-Object TimeCreated -Descending | Select-Object -First 1).TimeCreated)); DaysWindow=$days }
+            }
+        }
         $topRec = (($flagged | Group-Object Id | Sort-Object Count -Descending | Select-Object -First 5 | ForEach-Object { "Id $($_.Name) x$($_.Count)" }) -join '; ')
         $summary.Add([pscustomobject]@{
             LogName=$log; DaysWindow=$days; RecordsInLog=$recordsInLog[$log]
@@ -142,7 +179,8 @@ function Invoke-DiscoveryCollection {
         }
     }
 
-    return ,@{ EventLogSummary=@($summary); EventLogSamples=@($samples); AuditPolicySettings=@($auditRows); AuditPolicyGaps=@($auditGaps) }
+    $areaRows = @($areaCounts.Values | Sort-Object Area, LogName, ProviderName)
+    return ,@{ EventLogSummary=@($summary); EventLogSamples=@($samples); AuditPolicySettings=@($auditRows); AuditPolicyGaps=@($auditGaps); EventLogDependencyAreas=$areaRows }
 }
 
 function ConvertTo-DiscoveryDatasets {
@@ -151,8 +189,9 @@ function ConvertTo-DiscoveryDatasets {
     $get = { param($k) if ($RawData[$k]) { @($RawData[$k]) } else { @() } }
     Add-DataSet -Context $Context -Name 'EventLogSummary'    -Description 'Event log critical/error/warning counts (audit failures for Security) and top recurring events.' -Rows (& $get 'EventLogSummary')    -Visibility 'Internal' -SourceModule 'EventLogs' | Out-Null
     Add-DataSet -Context $Context -Name 'EventLogSamples'    -Description 'Sample critical/error events (redacted).'                                 -Rows (& $get 'EventLogSamples')    -Visibility 'Internal' -SourceModule 'EventLogs' | Out-Null
+    Add-DataSet -Context $Context -Name 'EventLogDependencyAreas' -Description 'Error/warning counts per workload area (SQL, Exchange, IIS, AD, DNS, DHCP, print, Entra Connect, Sage, Actian, ...).' -Rows (& $get 'EventLogDependencyAreas') -Visibility 'Internal' -SourceModule 'EventLogs' | Out-Null
     Add-DataSet -Context $Context -Name 'AuditPolicySettings' -Description 'Advanced audit policy (auditpol) - every subcategory and its setting.'    -Rows (& $get 'AuditPolicySettings') -Visibility 'Internal' -SourceModule 'EventLogs' | Out-Null
     Add-DataSet -Context $Context -Name 'AuditPolicyGaps'     -Description 'Critical audit subcategories set to No Auditing.'                          -Rows (& $get 'AuditPolicyGaps')     -Visibility 'Internal' -SourceModule 'EventLogs' | Out-Null
 }
 
-Export-ModuleMember -Function 'Get-DiscoveryModuleMetadata','Test-DiscoveryPrerequisites','Invoke-DiscoveryCollection','ConvertTo-DiscoveryDatasets','Get-AuditPolicySettings'
+Export-ModuleMember -Function 'Get-DiscoveryModuleMetadata','Test-DiscoveryPrerequisites','Invoke-DiscoveryCollection','ConvertTo-DiscoveryDatasets','Get-AuditPolicySettings','Get-EventProviderArea'

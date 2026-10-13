@@ -264,3 +264,34 @@ function Get-DiscoveryModuleMetadata {
         Get-DiscoveryModuleSummary -ModuleName 'RiskEngine' -ModuleSource $src | Should -BeNullOrEmpty
     }
 }
+
+
+Describe 'Build-DiscoveryArgumentList - migration-scoping options' {
+    It 'passes nothing new when the new options are left at their defaults (privacy options off)' {
+        $a = Invoke-BuildArgs
+        $a | Should -Not -Contain '-CopyExchangeRawLogs'
+        $a | Should -Not -Contain '-IncludeSensitiveEvidence'
+        $a | Should -Not -Contain '-HypervisorInventoryPath'
+        $a | Should -Not -Contain '-ExchangeLogDays'
+    }
+    It 'passes the Exchange lookback, both privacy switches and a quoted inventory path when set' {
+        $a = Invoke-BuildArgs -Overrides @{ ExchangeLogDaysText = '30'; CopyExchangeRawLogs = $true; IncludeSensitiveEvidence = $true; HypervisorInventoryPath = 'C:\Exports\vms.csv' }
+        $i = [array]::IndexOf($a, '-ExchangeLogDays'); $i | Should -BeGreaterThan -1; $a[$i + 1] | Should -Be '30'
+        $a | Should -Contain '-CopyExchangeRawLogs'
+        $a | Should -Contain '-IncludeSensitiveEvidence'
+        $j = [array]::IndexOf($a, '-HypervisorInventoryPath'); $a[$j + 1] | Should -Be '"C:\Exports\vms.csv"'
+    }
+    It 'drops a non-numeric lookback rather than passing junk to the engine' {
+        (Invoke-BuildArgs -Overrides @{ ExchangeLogDaysText = 'abc' }) | Should -Not -Contain '-ExchangeLogDays'
+    }
+    It 'turns the inventory path into a real quoted argument in the launcher script' {
+        $a = Invoke-BuildArgs -Overrides @{ HypervisorInventoryPath = 'C:\My Exports\vms.csv' }
+        $launcher = ConvertTo-DiscoveryLauncherScript -ArgList $a -ArrayParameterNames @('IncludeModules')
+        try { (Get-Content $launcher -Raw) | Should -Match "-HypervisorInventoryPath 'C:\\My Exports\\vms\.csv'" } finally { Remove-Item $launcher -Force -ErrorAction SilentlyContinue }
+    }
+    It 'every GUI option maps to a real engine parameter' {
+        $engine = Get-Command (Join-Path $script:Root 'Discover-WindowsServer.ps1')
+        $a = Invoke-BuildArgs -Overrides @{ ExchangeLogDaysText = '30'; CopyExchangeRawLogs = $true; IncludeSensitiveEvidence = $true; HypervisorInventoryPath = 'x.csv'; DeepFileShareScan = $true; AttemptSqlIntegratedAuth = $true }
+        foreach ($flag in @($a | Where-Object { $_ -like '-*' -and $_ -notin @('-NoProfile','-File') })) { $engine.Parameters.ContainsKey($flag.TrimStart('-')) | Should -BeTrue -Because $flag }
+    }
+}

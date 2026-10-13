@@ -20,7 +20,7 @@ function Get-DiscoveryModuleMetadata {
         RequiresRole              = $null
         EstimatedImpact           = 'Minimal'
         CanRunAsSystem            = $true
-        ProducesDatasets          = @('DecommissionReadiness','ScreamTestPlan')
+        ProducesDatasets          = @('DecommissionReadiness','ScreamTestPlan','DecommissionStates')
         ProducesRisks             = $false
         # $false, not a placeholder: this module's per-factor ValidationNeeded text and the
         # Scream Test Plan's WhoMustValidate/RecommendedPowerOffTestWindow fields live only in
@@ -108,6 +108,18 @@ function Build-DecommissionReadiness {
     $lic = (& $ds 'Licensing')
     $factors.Add((New-ReadinessFactor -Factor 'License services / apps' -Status ($(if($lic){'Present'}else{'Unknown'})) -Confidence ($(if($lic){'Likely'}else{'Unknown'})) -Evidence ($(if($lic){'Licensing indicators detected.'}else{'No licensing indicators collected.'})) -WhyItMatters 'License managers/dongles may bind to this host.' -ValidationNeeded 'Confirm license reactivation requirements.' -IsHighWeight $false))
 
+    # Migration-scoping factors added with the Exchange/SMTP, application-stack and Entra Connect collectors.
+    $rows = { param($n) @(if ($Context.DataSets.Contains($n)) { @($Context.DataSets[$n].Rows) } else { @() }) }
+    $exch = (& $ds 'ExchangeServer')
+    $factors.Add((New-ReadinessFactor -Factor 'Exchange Server' -Status ($(if($exch){'Present'}else{'NotDetected'})) -Confidence ($(if($exch){'Confirmed'}else{'NotDetected'})) -Evidence ($(if($exch){'Exchange installed (see ExchangeServer).'}else{'No Exchange install detected.'})) -WhyItMatters 'Exchange holds recipient management and often SMTP relay; it is removed by uninstall, never by power-off.' -ValidationNeeded 'Confirm mailbox/hybrid state and the supported uninstall path.' -IsHighWeight $exch))
+    $smtp = @(& $rows 'SmtpRelayAssessment' | Select-Object -First 1)
+    $smtpState = if ($smtp.Count -eq 0) { 'NotDetected' } elseif ($smtp[0].Status -eq 'Confirmed active SMTP client') { 'Present' } elseif ($smtp[0].Status -eq 'No SMTP usage found in available logs') { 'NotDetected' } else { 'Unknown' }
+    $factors.Add((New-ReadinessFactor -Factor 'SMTP relay clients' -Status $smtpState -Confidence ($(if($smtp.Count){ if ($smtpState -eq 'Present') {'Confirmed'} else {'Unknown'} }else{'NotDetected'})) -Evidence ($(if($smtp.Count){ '{0} ({1} day(s) of evidence)' -f $smtp[0].Status, $smtp[0].EvidenceCoverageDays }else{'No SMTP role detected.'})) -WhyItMatters 'Devices and applications relaying through this server fail silently when it goes away; "no evidence" in a short window is not proof of no use.' -ValidationNeeded 'Identify every relay client; extend the observation window if evidence is thin.' -IsHighWeight ($smtpState -eq 'Present')))
+    $stacks = @(& $rows 'AppStackSummary' | Where-Object { $_.HostRole -in @('Server','Server and client') })
+    $factors.Add((New-ReadinessFactor -Factor 'Line-of-business application engine' -Status ($(if($stacks.Count){'Present'}else{'NotDetected'})) -Confidence ($(if($stacks.Count){ [string]$stacks[0].Confidence }else{'NotDetected'})) -Evidence ($(if($stacks.Count){ ($stacks | ForEach-Object { '{0} [{1}]' -f $_.Stack, $_.EvidenceIds }) -join '; ' }else{'No application-stack server components detected.'})) -WhyItMatters 'Client machines and RDS hosts point at the engine on this server.' -ValidationNeeded 'Confirm vendor-supported move/upgrade path and every client that connects.' -IsHighWeight ([bool]$stacks.Count)))
+    $entra = @(& $rows 'EntraConnectDetail' | Where-Object { $_.SyncEngineInstalled })
+    $factors.Add((New-ReadinessFactor -Factor 'Entra Connect sync' -Status ($(if($entra.Count){'Present'}else{'NotDetected'})) -Confidence ($(if($entra.Count){'Confirmed'}else{'NotDetected'})) -Evidence ($(if($entra.Count){ 'Staging mode: {0}; service {1}' -f $entra[0].StagingModeEnabled, $entra[0].SyncServiceState }else{'No Entra Connect sync engine detected.'})) -WhyItMatters 'Directory synchronisation for the whole tenant stops if the active sync server goes away.' -ValidationNeeded 'Stand up a staging server, switch over, then retire this one.' -IsHighWeight ([bool]$entra.Count)))
+
     $unknowns = (@($Context.Unknowns).Count -gt 0)
     $factors.Add((New-ReadinessFactor -Factor 'Unknowns that matter' -Status ($(if($unknowns){'Present'}else{'NotDetected'})) -Confidence 'Unknown' -Evidence ($(if($unknowns){("{0} unknown(s) recorded." -f @($Context.Unknowns).Count)}else{'No unknowns recorded.'})) -WhyItMatters 'Unresolved unknowns increase decommission risk.' -ValidationNeeded 'Resolve unknowns before any power-off decision.' -IsHighWeight $false))
 
@@ -122,6 +134,39 @@ function Build-DecommissionReadiness {
                       else { 'Manual validation required' }
     $Context.Paths['_DecommissionClassification'] = $classification  # stash for report
     return $classification
+}
+
+function Build-DecommissionStates {
+    <#
+        Named decommissioning states with the evidence behind each. Several can apply at once; the
+        last one always applies, because powering off is never the end of a decommission.
+        'Ready for final dependency review' is the best state this tool ever reports - never "safe".
+    #>
+    param([object]$Context)
+    $rows = { param($n) @(if ($Context.DataSets.Contains($n)) { @($Context.DataSets[$n].Rows) } else { @() }) }
+    $vms = @(& $rows 'HyperVVMs'); $ext = @(& $rows 'ExternalHypervisorVMs')
+    $running = @($vms | Where-Object { [string]$_.State -eq 'Running' }) + @($ext | Where-Object { $_.IsRunning })
+    $off = @($vms | Where-Object { [string]$_.State -in @('Off','Saved','Paused') }) + @($ext | Where-Object { $_.IsPoweredOff })
+    $files = @(& $rows 'HyperVUnattachedFiles') + @(& $rows 'ExternalHypervisorFiles')
+    $snap = @($vms | Where-Object { $_.HasCheckpoints }) + @($ext | Where-Object { $_.HasSnapshots })
+    $backup = @(& $rows 'BackupDiscovery') + @(& $rows 'VendorAgents' | Where-Object { $_.Category -eq 'Backup' })
+    $monitor = @(& $rows 'VendorAgents' | Where-Object { $_.Category -in @('RMM','Monitoring') })
+    $smtp = @(& $rows 'SmtpRelayAssessment' | Where-Object { $_.Status -eq 'Confirmed active SMTP client' })
+    $conflict = @(& $rows 'HypervisorInventorySummary' | Where-Object { $_.CountConflicts -gt 0 })
+    $highWeight = @(& $rows 'DecommissionReadiness' | Where-Object { $_.IsHighWeight -and $_.Status -eq 'Present' })
+    $list = [System.Collections.Generic.List[object]]::new()
+    $add = { param($state, $applies, $evidence, $next) $list.Add([pscustomobject]@{ State=$state; Applies=[bool]$applies; Evidence=$evidence; NextStep=$next }) }
+    & $add 'Active VMs remain' ($running.Count -gt 0) ("{0} running VM(s)" -f $running.Count) 'Migrate or retire every running VM before the host is touched.'
+    & $add 'Powered-off VMs require disposition' ($off.Count -gt 0) ("{0} powered-off/saved VM(s)" -f $off.Count) 'Get a keep/archive/delete decision for each one in writing.'
+    & $add 'Datastore contents require review' (($files.Count + $snap.Count) -gt 0) ("{0} unattached/ISO file(s), {1} VM(s) with checkpoints/snapshots" -f $files.Count, $snap.Count) 'Review leftover disks, ISOs and snapshots; nothing is deleted by this tool.'
+    & $add 'Hypervisor inventory conflict' ($conflict.Count -gt 0) ($(if ($conflict.Count) { [string]$conflict[0].CountConflictDetail } else { 'No source disagreement' })) 'Reconcile RMM-reported VM counts with the hypervisor before scoping.'
+    & $add 'Backup dependency remains' ($backup.Count -gt 0) ((@($backup | ForEach-Object { if ($_.Product) { $_.Product } else { $_.AgentName } }) | Select-Object -Unique) -join ', ') 'Retire or retarget backup jobs/agents and keep restore capability for the retention period.'
+    & $add 'Monitoring dependency remains' ($monitor.Count -gt 0) ((@($monitor | ForEach-Object { $_.AgentName }) | Select-Object -Unique) -join ', ') 'Remove the device from RMM/monitoring after retirement so alerts do not go stale.'
+    & $add 'SMTP relay dependency remains' ($smtp.Count -gt 0) ($(if ($smtp.Count) { '{0} confirmed client(s)' -f $smtp[0].ConfirmedClients } else { '' })) 'Move every relay client to another SMTP path.'
+    $blocked = @($list | Where-Object { $_.Applies }).Count -gt 0 -or $highWeight.Count -gt 0
+    & $add 'Ready for final dependency review' (-not $blocked) ($(if ($blocked) { 'Blocking states or high-weight roles are present.' } else { 'No blocking state detected by this run.' })) 'Run the scream-test plan and obtain owner sign-off; this is not a "safe to power off" statement.'
+    & $add 'Physical removal or data destruction requires separate approval' $true 'Always applies.' 'Disk wiping, certificate of destruction and hardware disposal are separate, approved steps.'
+    Add-DataSet -Context $Context -Name 'DecommissionStates' -Description 'Named decommissioning states (multiple can apply) with evidence and next step.' -Rows @($list) -Visibility 'Both' -SourceModule 'DecommissionReadiness' | Out-Null
 }
 
 function Build-ScreamTestPlan {
@@ -149,7 +194,8 @@ function Invoke-DiscoverySynthesis {
     param([object]$Context)
     Write-SectionStatus -Title 'Decommission Readiness' -Status 'Analyzing' -Context $Context
     try { Build-DecommissionReadiness -Context $Context | Out-Null } catch { Write-Log -Level WARN -Message 'Decommission readiness build failed.' -Module 'DecommissionReadiness' -Exception $_ -Context $Context }
+    try { Build-DecommissionStates -Context $Context } catch { Write-Log -Level WARN -Message 'Decommission states build failed.' -Module 'DecommissionReadiness' -Exception $_ -Context $Context }
     try { Build-ScreamTestPlan -Context $Context } catch { Write-Log -Level WARN -Message 'Scream test plan build failed.' -Module 'DecommissionReadiness' -Exception $_ -Context $Context }
 }
 
-Export-ModuleMember -Function 'Get-DiscoveryModuleMetadata','Test-DiscoveryPrerequisites','Invoke-DiscoverySynthesis','Build-DecommissionReadiness','Build-ScreamTestPlan'
+Export-ModuleMember -Function 'Get-DiscoveryModuleMetadata','Test-DiscoveryPrerequisites','Invoke-DiscoverySynthesis','Build-DecommissionReadiness','Build-ScreamTestPlan','Build-DecommissionStates'

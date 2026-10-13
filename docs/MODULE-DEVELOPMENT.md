@@ -165,6 +165,24 @@ Add the module name to `collectorModuleOrder` in `config/default.discovery.json`
 matters — earlier modules' datasets are available to later ones). Synthesis modules run
 after all collectors via `Invoke-DiscoverySynthesis`.
 
+### Making a new dataset visible in the reports
+
+Add it to `Get-InternalReportSectionMap` in `modules\Output\Output.psm1` (drives both the printable
+internal report and the dashboard; a value can be `@{ Dataset = 'Services'; Filter = { ... } }` for a
+filtered view) and, if it belongs in the Markdown report, to the section list in
+`Write-InternalMarkdownReport` (`modules\ReportBuilder\ReportBuilder.psm1`). Client reports only read
+`ClientSafe`/`Both` datasets through `Get-RbClientModel` - add a curated, column-limited table there.
+
+### Recognising a vendor application without code
+
+Multi-component products (server engine, clients, drivers, DSNs, services, shares, SQL instances)
+are declared in `config\application-stacks.json` and matched by the `ApplicationStacks` collector,
+which cites an evidence ID for every hit. The self-check verifies every dataset/field a stack names.
+Single-component products belong in `config\application-fingerprints.json` instead.
+
+ODBC rows from any collector should go through `ConvertTo-OdbcDsnRecord` / `Set-OdbcCrossChecks`
+in Core, which drop credential attributes and compute the shared migration flags.
+
 ### Reading another module's dataset
 
 If your module reads a dataset it does not own, check where its owner sits in

@@ -69,6 +69,28 @@ Output                                 ->  CSV / JSON / workbook / HTML / Markdo
 | `DomainContext` | ActiveDirectory | `IsDomainController`(bool), `HoldsFsmoRole`(bool), `DomainFunctionalLevel`, `ForestFunctionalLevel` — from `RootDSE` (`domainFunctionality`/`forestFunctionality`), no RSAT needed; `LdapSigningNotEnforced`(bool), `LdapChannelBindingNotEnforced`(bool) — DC-only (`NTDS\Parameters`), always `$false` on a non-DC regardless of registry state |
 | `AppliedGroupPolicy` | ActiveDirectory | *(absent/empty ⇒ "GPO data unavailable")* |
 | `DnsRecordsReferencingThisServer` | DNS | `ZoneName`, `RecordType`, `RecordName`, `PointsTo` — A/CNAME records (forward zones only) whose target is this server's own hostname/IP |
+| `SqlServerSummary` | SQL | `MultipleSqlVersions`(bool), `MultipleApplicationInstances`(bool), `TotalDatabaseSizeGB`(number), `AnyBuiltInServiceAccount`(bool), `ProductVersions` |
+| `SqlServices` | SQL | `Name`, `Role`, `Instance`, `Status`, `StartMode`, `AccountType` |
+| `OdbcDrivers` | SQL | `Name`, `Bitness`, `DriverPath` |
+| `ExchangeServer` | ExchangeSmtp | `ProductName`, `Version`, `IsUnsupportedVersion`(bool), `HybridConfigured`(bool), `ManagementToolsOnly`(bool), `CmdletsAvailable`(bool) |
+| `ExchangeReceiveConnectors` | ExchangeSmtp | `Name`, `Bindings`, `RemoteIPRanges`, `ProtocolLoggingLevel`, `AnonymousRelay` |
+| `SmtpRelayClients` | ExchangeSmtp | `ClientIp`, `ClientIdentity`, `ConnectorIds`, `MessagesInTracking`(number), `AcceptedInProtocolLog`(number), `Classification`, `Confidence` |
+| `SmtpRelayAssessment` | ExchangeSmtp | `Status`, `Conditions`, `Recommendation`, `UsageProvenUnused`(bool, always false), `EvidenceCoverageDays`(number) |
+| `SmtpConnections` | ExchangeSmtp | `Direction`, `RemoteAddress`, `RemotePort`, `Process` |
+| `AppStackEvidence` | ApplicationStacks | `EvidenceId`, `Stack`, `Component`, `Role`, `Version`, `Confidence`, `SourceDataset`, `SourceField` |
+| `AppStackSummary` | ApplicationStacks | `Stack`, `HostRole`, `ServerVersions`, `ClientVersions`, `LocalServerClientVersionsDiffer`(bool), `RdsHostWithClient`(bool), `EvidenceIds`, `Confidence` |
+| `ShareRootAcl` | FileShares | `Share`, `ExplicitAceCount`(number), `UnresolvedSidCount`(number), `PermissionComplexity` |
+| `AzureFileSync` | FileShares | *(any rows ⇒ Azure File Sync indicators present)* |
+| `PrintServerSummary` | PrintServer | `ScanWorkflowVerificationNeeded`(bool), `PrintLogStatus`, `PrintManagementAgents`, `HostsRdsSessions`(bool) |
+| `EntraConnectDetail` | AzureHybrid | `SyncEngineInstalled`(bool), `StagingModeEnabled`, `PassThroughAgentPresent`(bool), `SyncErrorEventsInWindow`(number) |
+| `AdDomainControllers` | ActiveDirectory | `Name`, `OperatingSystem`, `Site`, `IsGlobalCatalog`(bool), `IsReadOnly`(bool), `IsUnsupportedOs`(bool) |
+| `AdHealthChecks` | ActiveDirectory | `Check`, `Result`, `Detail` |
+| `DhcpServerSummary` | DHCP | `HostsActiveDhcp`(bool), `HasFailover`(bool), `ActiveScopeCount`(number) |
+| `DnsZones` | DNS | `ZoneName`, `IsConditionalForwarder`(bool), `MasterServers`, `RequiresStaticUpdates`(bool) |
+| `HyperVUnattachedFiles` | HyperV | `Path`, `FileType`, `SizeGB` |
+| `HypervisorInventorySummary` | HypervisorInventory | `RunningVMs`(number), `PoweredOffVMs`(number), `CountConflicts`(number), `CountConflictDetail` |
+| `WorkloadProfile` | WorkloadProfile | `TotalMemoryGB`, `FreeCapacityGB`, `SqlDataGB`, `ShareDataGB`, `ShareSizeUnknown`(bool) |
+| `EventLogDependencyAreas` | EventLogs | `Area`, `ProviderName`, `ErrorCount`(number), `WarningCount`(number) |
 | `AuditPolicySettings` | EventLogs | `Category`, `Subcategory`, `Setting` — every `auditpol /get /category:*` subcategory, parsed live (`Get-AuditPolicySettings`) |
 | `AuditPolicyGaps` | EventLogs | `Category`, `Subcategory`, `Setting` — pre-filtered to a curated critical-subcategory list set to `No Auditing`; *(absent/empty ⇒ no finding)* |
 

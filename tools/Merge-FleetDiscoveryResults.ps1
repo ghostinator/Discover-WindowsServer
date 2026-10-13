@@ -26,13 +26,26 @@
 .PARAMETER OutputPath
     Where the rollup files land. Defaults to <EngagementFolder>\rollup\.
 
+.PARAMETER RetiringServers
+    Servers being retired/migrated FROM. Optional: when omitted, servers whose run used
+    -ProjectType Decommission are treated as retiring. Drives DNS/ODBC/UNC/SMTP 'references a
+    retiring server' correlations and is the source side of the capacity comparison.
+
+.PARAMETER TargetServers
+    Proposed target servers (already scanned in this engagement). Optional: enables the
+    non-prescriptive source-vs-target capacity comparison.
+
 .EXAMPLE
     .\tools\Merge-FleetDiscoveryResults.ps1 -EngagementFolder 'C:\Temp\FleetRuns\Acme_20260925'
+.EXAMPLE
+    .\tools\Merge-FleetDiscoveryResults.ps1 -EngagementFolder 'C:\Temp\FleetRuns\Acme_20260925' -RetiringServers APP01,FS01 -TargetServers APP02
 #>
 [CmdletBinding()]
 param(
     [string]$EngagementFolder,
-    [string]$OutputPath
+    [string]$OutputPath,
+    [string[]]$RetiringServers = @(),
+    [string[]]$TargetServers = @()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -185,6 +198,171 @@ function Get-FleetDependencyHint {
 
 #endregion
 
+#region Cross-server correlation --------------------------------------------------
+
+function Get-FleetServerAddressMap {
+    <# Pure: IPConfiguration rows (stamped with ComputerName) -> @{ ip -> ComputerName }. #>
+    param([object[]]$IpRows = @())
+    $map = @{}
+    foreach ($r in $IpRows) {
+        foreach ($ip in @(([string]$r.AllIPv4Addresses) -split ',') + @([string]$r.IPv4Address)) { $t = $ip.Trim(); if ($t -and -not $map.ContainsKey($t)) { $map[$t] = [string]$r.ComputerName } }
+    }
+    return $map
+}
+
+function Resolve-FleetServerReference {
+    <# Pure: which fleet server (if any) a host name, FQDN, IP, UNC path or 'host\instance' refers to. '' when none. #>
+    param([string]$Text, [string[]]$ServerNames = @(), [hashtable]$AddressMap = @{})
+    if ([string]::IsNullOrWhiteSpace($Text)) { return '' }
+    $t = $Text.Trim()
+    if ($t.StartsWith('\\')) { $t = $t.Substring(2) }
+    $hostPart = (($t -split '[\\/,:]')[0]).Trim().TrimEnd('.')
+    if ($AddressMap.ContainsKey($hostPart)) { return [string]$AddressMap[$hostPart] }
+    $label = ($hostPart -split '\.')[0]
+    foreach ($n in $ServerNames) { if ($n -and ($label -ieq $n -or $hostPart -ieq $n)) { return $n } }
+    return ''
+}
+
+function Get-FleetAppStackCorrelation {
+    <#
+        Pure: per-stack view across servers from AppStackEvidence rows (stamped with ComputerName).
+        Version comparison is reported as 'Possible mismatch - vendor validation required', never as
+        compatible/incompatible: the toolkit does not know the vendor's support matrix.
+    #>
+    param([object[]]$EvidenceRows = @(), [string[]]$RdsHosts = @(), [string[]]$RetiringServers = @(), [string[]]$TargetServers = @())
+    $out = foreach ($g in ($EvidenceRows | Group-Object Stack)) {
+        $ev = @($g.Group)
+        $server = @($ev | Where-Object { $_.Role -eq 'Server' })
+        $client = @($ev | Where-Object { $_.Role -eq 'Client' -and $_.Component -notmatch '(?i)Aatrix' })
+        $serverHosts = @($server | ForEach-Object { [string]$_.ComputerName } | Select-Object -Unique | Sort-Object)
+        $clientHosts = @($client | ForEach-Object { [string]$_.ComputerName } | Select-Object -Unique | Sort-Object)
+        $sv = @($server | Where-Object { $_.Version } | ForEach-Object { $_.Version } | Select-Object -Unique)
+        $cv = @($client | Where-Object { $_.Version } | ForEach-Object { $_.Version } | Select-Object -Unique)
+        $mismatch = @($cv | Where-Object { $sv.Count -gt 0 -and $sv -notcontains $_ })
+        $clientByServer = (@($client | Group-Object ComputerName | ForEach-Object { '{0}: {1}' -f $_.Name, ((@($_.Group | ForEach-Object { $_.Version } | Where-Object { $_ } | Select-Object -Unique)) -join '/') })) -join '; '
+        [pscustomobject]@{
+            Stack=$g.Name; ServerEngineHosts=($serverHosts -join ', '); ServerVersions=(@($server | Where-Object { $_.Version } | ForEach-Object { '{0} {1}' -f $_.ComputerName, $_.Version } | Select-Object -Unique) -join '; ')
+            ClientHosts=($clientHosts -join ', '); ClientVersionsByServer=$clientByServer
+            RdsHostsWithClient=((@($clientHosts | Where-Object { $RdsHosts -contains $_ })) -join ', ')
+            VersionAssessment=$(if ($mismatch.Count) { 'Possible mismatch - vendor validation required (client ' + ($mismatch -join ', ') + ' vs server ' + ($sv -join ', ') + ')' } elseif ($sv.Count -and $cv.Count) { 'Same version numbers seen - still confirm compatibility with the vendor' } else { 'Insufficient version evidence' })
+            MultipleServerEngines=[bool]($serverHosts.Count -gt 1)
+            DsnsByPlatform=((@($ev | Where-Object { $_.Role -eq 'DSN' } | ForEach-Object { '{0}: {1} ({2}-bit)' -f $_.ComputerName, $_.Item, $_.Bitness } | Select-Object -Unique)) -join '; ')
+            AssociatedSqlInstances=((@($ev | Where-Object { $_.Role -eq 'Database' } | ForEach-Object { '{0}: {1}' -f $_.ComputerName, $_.Item } | Select-Object -Unique)) -join '; ')
+            CandidateSourceServers=((@($serverHosts | Where-Object { $RetiringServers.Count -eq 0 -or $RetiringServers -contains $_ })) -join ', ')
+            CandidateTargetServers=((@($TargetServers | Where-Object { $serverHosts -notcontains $_ })) -join ', ')
+            Confidence=$(if (@($ev | Where-Object { $_.Role -in @('Server','Client') -and $_.Confidence -eq 'Confirmed' }).Count) { 'Confirmed' } else { 'Likely' })
+            EvidenceIds=((@($ev | Where-Object { $_.Role -in @('Server','Client') } | ForEach-Object { '{0}:{1}' -f $_.ComputerName, $_.EvidenceId })) -join ', ')
+        }
+    }
+    return ,@($out)
+}
+
+function Get-FleetCapacityComparison {
+    <#
+        Pure: compares the measured footprint of source servers against each target's known free
+        resources. Non-prescriptive by design - it says what needs validating, never which VM size
+        to buy, because point-in-time snapshots are not sizing data.
+    #>
+    param([object[]]$Profiles = @(), [string[]]$SourceServers = @(), [string[]]$TargetServers = @(), [object[]]$StackRows = @())
+    $src = @($Profiles | Where-Object { $SourceServers -contains $_.ComputerName })
+    $needGB = [double](($src | ForEach-Object { [double]$_.SqlDataGB + [double]$_.ShareDataGB }) | Measure-Object -Sum).Sum
+    $unmeasured = @($src | Where-Object { $_.ShareSizeUnknown -eq $true -or ($_.SqlInstanceCount -gt 0 -and $null -eq $_.SqlDataGB) } | ForEach-Object { $_.ComputerName })
+    $srcHasSql = [bool](@($src | Where-Object { $_.SqlInstanceCount -gt 0 }).Count)
+    $srcMaxMem = [double](($src | Measure-Object -Property TotalMemoryGB -Maximum).Maximum)
+    $out = foreach ($t in $TargetServers) {
+        $p = @($Profiles | Where-Object { $_.ComputerName -eq $t } | Select-Object -First 1)
+        $notes = [System.Collections.Generic.List[string]]::new()
+        if ($p.Count -eq 0) { $notes.Add('No discovery data for this target - capacity unknown'); [pscustomobject]@{ TargetServer=$t; FreeCapacityGB=$null; TotalMemoryGB=$null; SourceDataGBMeasured=[math]::Round($needGB,2); Findings=($notes -join '; ') }; continue }
+        $p = $p[0]
+        if ($unmeasured.Count) { $notes.Add('Target storage requires validation (data volume not measured on: ' + ($unmeasured -join ', ') + ')') }
+        if ($null -ne $p.FreeCapacityGB -and $needGB -gt 0 -and [double]$p.FreeCapacityGB -lt ($needGB * 1.2)) { $notes.Add(('Target has insufficient known free capacity ({0} GB free vs {1} GB measured source data + 20% headroom)' -f $p.FreeCapacityGB, [math]::Round($needGB,1))) }
+        if ($p.SqlInstanceCount -gt 0 -and $srcHasSql) { $notes.Add('SQL is already present on target - consolidation needs instance/collation/version checks') }
+        if ($p.SqlInstanceCount -gt 0 -or $p.ApplicationStacks) { $notes.Add('Application server appears to be the logical consolidation target (validate with application owners)') }
+        if ($p.UserShareCount -gt 0) { $notes.Add('File server appears to be the logical data target (validate share naming and permissions)') }
+        $rdsClient = @($StackRows | Where-Object { $_.ComputerName -eq $t -and $_.RdsHostWithClient })
+        if ($rdsClient.Count) { $notes.Add('RDS server contains corresponding client components') }
+        if ($null -ne $p.TotalMemoryGB -and $srcMaxMem -gt 0 -and [double]$p.TotalMemoryGB -lt $srcMaxMem) { $notes.Add(('VM resize may be needed ({0} GB on target vs {1} GB on largest source)' -f $p.TotalMemoryGB, $srcMaxMem)) }
+        $notes.Add('Additional performance evidence is required before sizing (point-in-time snapshots only)')
+        [pscustomobject]@{ TargetServer=$t; FreeCapacityGB=$p.FreeCapacityGB; TotalMemoryGB=$p.TotalMemoryGB; LogicalProcessors=$p.LogicalProcessors; SourceDataGBMeasured=[math]::Round($needGB,2); Findings=($notes -join '; ') }
+    }
+    return ,@($out)
+}
+
+function Get-FleetCorrelations {
+    <#
+        Cross-server correlations for migration and decommission scoping. -RetiringServers /
+        -TargetServers are optional; when RetiringServers is omitted, servers whose run used
+        -ProjectType Decommission are treated as retiring.
+    #>
+    param([Parameter(Mandatory)][string]$EngagementFolder, [string[]]$RetiringServers = @(), [string[]]$TargetServers = @())
+    $names = @(foreach ($d in (Get-FleetRunFolder -EngagementFolder $EngagementFolder)) { $m = Get-FleetRunMetadata -RunFolder $d.FullName; if ($m) { [string]$m.ComputerName } })
+    if (@($RetiringServers).Count -eq 0) {
+        $RetiringServers = @(foreach ($d in (Get-FleetRunFolder -EngagementFolder $EngagementFolder)) { $m = Get-FleetRunMetadata -RunFolder $d.FullName; if ($m -and $m.ProjectType -eq 'Decommission') { [string]$m.ComputerName } })
+    }
+    $ds = { param($n) @(Merge-FleetDataset -EngagementFolder $EngagementFolder -DatasetName $n) }
+    $addr = Get-FleetServerAddressMap -IpRows (& $ds 'IPConfiguration')
+    $rdsHosts = @(& $ds 'RdsDiscovery' | ForEach-Object { [string]$_.ComputerName } | Select-Object -Unique)
+    $stackSummary = & $ds 'AppStackSummary'
+    $isRetiring = { param($n) [bool]($n -and $RetiringServers -contains $n) }
+
+    $odbc = foreach ($r in (@(& $ds 'OdbcDsns') + @(& $ds 'UserOdbcDsns'))) {
+        $target = Resolve-FleetServerReference -Text ([string]$r.Server) -ServerNames $names -AddressMap $addr
+        if (-not $target) { $target = Resolve-FleetServerReference -Text ([string]$r.DbqOrPath) -ServerNames $names -AddressMap $addr }
+        if (-not $target -or $target -eq $r.ComputerName) { continue }
+        [pscustomobject]@{ SourceServer=$r.ComputerName; Dsn=$r.DsnName; Scope=$r.Scope; Bitness=$r.Bitness; Driver=$r.Driver; ReferencesServer=$target; TargetIsRetiring=(& $isRetiring $target); Confidence='Confirmed'; Evidence=('Server={0} DBQ={1}' -f $r.Server, $r.DbqOrPath) }
+    }
+    $paths = @(
+        foreach ($t in (& $ds 'ScheduledTasks' | Where-Object { $_.UsesUncPath })) { foreach ($m in [regex]::Matches([string]$t.ActionsText, '\\\\([^\\\s"]+)')) { $ref = Resolve-FleetServerReference -Text $m.Value -ServerNames $names -AddressMap $addr; if ($ref -and $ref -ne $t.ComputerName) { [pscustomobject]@{ SourceServer=$t.ComputerName; Kind='Scheduled task'; Item=$t.TaskName; ReferencesServer=$ref; TargetIsRetiring=(& $isRetiring $ref); Evidence=$m.Value } } } }
+        foreach ($d in (& $ds 'MappedDrives')) { $ref = Resolve-FleetServerReference -Text ([string]$d.RemotePath) -ServerNames $names -AddressMap $addr; if ($ref -and $ref -ne $d.ComputerName) { [pscustomobject]@{ SourceServer=$d.ComputerName; Kind='Mapped drive'; Item=$d.DriveLetter; ReferencesServer=$ref; TargetIsRetiring=(& $isRetiring $ref); Evidence=$d.RemotePath } } }
+        foreach ($s in (& $ds 'IisSites' | Where-Object { $_.PathIsUnc })) { $ref = Resolve-FleetServerReference -Text ([string]$s.PhysicalPath) -ServerNames $names -AddressMap $addr; if ($ref) { [pscustomobject]@{ SourceServer=$s.ComputerName; Kind='IIS site content'; Item=$s.Name; ReferencesServer=$ref; TargetIsRetiring=(& $isRetiring $ref); Evidence=$s.PhysicalPath } } }
+    )
+    $retiringIps = @($addr.Keys | Where-Object { & $isRetiring $addr[$_] })
+    $dns = @(
+        foreach ($ip in (& $ds 'IPConfiguration')) { foreach ($d in (([string]$ip.DnsServers) -split ',')) { $d = $d.Trim(); if ($d -and $retiringIps -contains $d -and $addr[$d] -ne $ip.ComputerName) { [pscustomobject]@{ Server=$ip.ComputerName; Reference='Uses DNS server'; RetiringServer=$addr[$d]; Detail=('{0} on {1}' -f $d, $ip.InterfaceAlias) } } } }
+        foreach ($r in (& $ds 'DnsRecordsReferencingThisServer' | Where-Object { & $isRetiring $_.ComputerName })) { [pscustomobject]@{ Server=$r.ComputerName; Reference='DNS record points at retiring server'; RetiringServer=$r.ComputerName; Detail=('{0} {1} -> {2}' -f $r.RecordType, $r.RecordName, $r.PointsTo) } }
+    )
+    $smtp = foreach ($c in (& $ds 'SmtpRelayClients')) { [pscustomobject]@{ RelayServer=$c.ComputerName; ClientIp=$c.ClientIp; ClientIsFleetServer=[string]$addr[[string]$c.ClientIp]; ClientIdentity=$c.ClientIdentity; Classification=$c.Classification; Messages=$c.MessagesInTracking; LastSeen=$c.LastSeen; RelayIsRetiring=(& $isRetiring $c.ComputerName) } }
+    $dcs = @(& $ds 'AdDomainControllers' | Sort-Object Name -Unique)
+    $dcDeps = @(
+        foreach ($dc in $dcs) { [pscustomobject]@{ DomainController=$dc.Name; OperatingSystem=$dc.OperatingSystem; Site=$dc.Site; GlobalCatalog=$dc.IsGlobalCatalog; Retiring=(& $isRetiring $dc.Name); Unsupported=$dc.IsUnsupportedOs; DnsClientsInFleet=(@($dns | Where-Object { $_.RetiringServer -eq $dc.Name -and $_.Reference -eq 'Uses DNS server' } | ForEach-Object { $_.Server } | Select-Object -Unique) -join ', ') } }
+    )
+    $entra = @(& $ds 'EntraConnectDetail' | Where-Object { $_.SyncEngineInstalled -or $_.PassThroughAgentPresent } | ForEach-Object { [pscustomobject]@{ Server=$_.ComputerName; Version=$_.Version; StagingMode=$_.StagingModeEnabled; SyncService=$_.SyncServiceState; PassThroughAgent=$_.PassThroughAgentPresent; Retiring=(& $isRetiring $_.ComputerName) } })
+    $entraNote = if (@($entra | Where-Object { $_.SyncService -and $_.SyncService -ne 'NotInstalled' }).Count -gt 1) { 'More than one synchronization server detected - confirm which is active and which is staging.' } elseif ($entra.Count -eq 1) { 'Single synchronization server detected in the scanned fleet (others may exist outside it).' } else { '' }
+    $guests = @(
+        foreach ($v in (& $ds 'HyperVVMs')) { $g = Resolve-FleetServerReference -Text ([string]$v.Name) -ServerNames $names -AddressMap @{}; [pscustomobject]@{ Host=$v.ComputerName; VM=$v.Name; State=$v.State; GuestIsFleetServer=$g; HostIsRetiring=(& $isRetiring $v.ComputerName); Source='Hyper-V' } }
+        foreach ($v in (& $ds 'ExternalHypervisorVMs')) { $g = Resolve-FleetServerReference -Text ([string]$(if ($v.GuestHostName) { $v.GuestHostName } else { $v.VMName })) -ServerNames $names -AddressMap @{}; [pscustomobject]@{ Host=$v.HostName; VM=$v.VMName; State=$v.PowerState; GuestIsFleetServer=$g; HostIsRetiring=$false; Source=$(if ($v.Source) { $v.Source } else { 'Imported inventory' }) } }
+    )
+    # Same (normalised) user-share name on several servers: an existing target share, or a prior/partial migration copy.
+    $shareKey = { param($n) (([string]$n).ToLowerInvariant() -replace '\$$','' -replace '[_\-. ]?(old|new|bak|backup|copy|migrated|archive|\d{6,8})$','') }
+    $shares = @(foreach ($g in (@(& $ds 'SmbShares' | Where-Object { $_.IsUserShare }) | Group-Object { & $shareKey $_.Name })) {
+        $servers = @($g.Group | ForEach-Object { [string]$_.ComputerName } | Select-Object -Unique)
+        if ($servers.Count -lt 2) { continue }
+        [pscustomobject]@{ NormalisedName=$g.Name; Shares=((@($g.Group | ForEach-Object { '{0}\{1}' -f $_.ComputerName, $_.Name })) -join '; ')
+            OnTargetServer=((@($servers | Where-Object { $TargetServers -contains $_ })) -join ', '); OnRetiringServer=((@($servers | Where-Object { & $isRetiring $_ })) -join ', ')
+            Assessment='Existing target share with a similar name, or a prior/partial migration copy - compare contents before copying' }
+    })
+    $sql = @(& $ds 'SqlInstances' | Where-Object { -not $_.IsWindowsInternalDatabase } | ForEach-Object { [pscustomobject]@{ Server=$_.ComputerName; Instance=$_.InstanceName; Product=$_.ProductName; Edition=$_.Edition; Classification=$_.Classification; Databases=$_.DatabaseCount; DataGB=$_.TotalDatabaseSizeGB; Unsupported=$_.IsUnsupportedVersion; Retiring=(& $isRetiring $_.ComputerName) } })
+    $profiles = @(& $ds 'WorkloadProfile')
+    $sources = @(if (@($RetiringServers).Count) { $RetiringServers } else { @() })
+    [pscustomobject]@{
+        RetiringServers = @($RetiringServers); TargetServers = @($TargetServers)
+        ApplicationStacks = Get-FleetAppStackCorrelation -EvidenceRows (& $ds 'AppStackEvidence') -RdsHosts $rdsHosts -RetiringServers $RetiringServers -TargetServers $TargetServers
+        SqlInstances = $sql
+        OdbcReferences = @($odbc)
+        SharedPathReferences = @($paths)
+        SimilarShareNames = $shares
+        DnsReferencesToRetiring = @($dns)
+        SmtpClients = @($smtp)
+        DomainControllers = $dcDeps
+        EntraConnect = $entra; EntraConnectNote = $entraNote
+        HypervisorRelationships = $guests
+        WorkloadProfiles = @($profiles | ForEach-Object { [pscustomobject]@{ Server=$_.ComputerName; Cores=$_.PhysicalCores; LogicalProcessors=$_.LogicalProcessors; MemoryGB=$_.TotalMemoryGB; FreeGB=$_.FreeCapacityGB; SqlDataGB=$_.SqlDataGB; ShareDataGB=$_.ShareDataGB; Roles=$_.DetectedRoles; Stacks=$_.ApplicationStacks } })
+        CapacityComparison = $(if (@($TargetServers).Count -and $sources.Count) { Get-FleetCapacityComparison -Profiles $profiles -SourceServers $sources -TargetServers $TargetServers -StackRows $stackSummary } else { @() })
+    }
+}
+
+#endregion
+
 #region Rollup report -------------------------------------------------------------
 
 function Get-FleetFolderSummary {
@@ -214,7 +392,7 @@ function Get-FleetRollupModel {
         for the same engagement - same reasoning as Get-InternalReportModel in Output.psm1 for
         the single-server reports.
     #>
-    param([Parameter(Mandatory)][string]$EngagementFolder)
+    param([Parameter(Mandatory)][string]$EngagementFolder, [string[]]$RetiringServers = @(), [string[]]$TargetServers = @())
 
     $runFolders = Get-FleetRunFolder -EngagementFolder $EngagementFolder
     $outcomes = Get-FleetRunOutcome -EngagementFolder $EngagementFolder
@@ -257,6 +435,8 @@ function Get-FleetRollupModel {
         ScopeExclusions       = @(Merge-FleetDataset -EngagementFolder $EngagementFolder -DatasetName 'ScopeExclusions')
         FleetAverageReadiness = $fleetAverageReadiness
         DependencyEdges       = @(Merge-FleetDataset -EngagementFolder $EngagementFolder -DatasetName 'DependencyGraph')
+        # Correlation failures must never cost the rest of the rollup (this script runs with ErrorActionPreference Stop).
+        Correlations          = $(try { Get-FleetCorrelations -EngagementFolder $EngagementFolder -RetiringServers $RetiringServers -TargetServers $TargetServers } catch { Write-Warning ("Fleet correlation failed: {0}" -f $_.Exception.Message); $null })
     }
 }
 
@@ -354,6 +534,28 @@ code{background:var(--surface);padding:1px 4px;border-radius:3px;font-size:12px;
     return ($css -replace '__ACCENT__', $AccentColorHex)
 }
 
+function Get-FleetCorrelationSections {
+    <# One section list for both rollup formats, so the printable report and the dashboard cannot drift. #>
+    param([object]$Model)
+    $c = $Model.Correlations
+    if (-not $c) { return ,@() }
+    $list = @(
+        @{ Title='Application stacks across servers'; Rows=$c.ApplicationStacks; Note='Server engine hosts, client hosts and versions per stack. Version differences are flagged for vendor validation, never judged compatible.' }
+        @{ Title='Target capacity comparison'; Rows=$c.CapacityComparison; Note='Non-prescriptive: measured source footprint against each target''s known free resources. No VM size is recommended without sustained performance data.' }
+        @{ Title='Workload profiles'; Rows=$c.WorkloadProfiles; Note='Per-server resources and footprint.' }
+        @{ Title='SQL instances across servers'; Rows=$c.SqlInstances; Note='' }
+        @{ Title='ODBC references to other fleet servers'; Rows=$c.OdbcReferences; Note='' }
+        @{ Title='Shared-path references to other fleet servers'; Rows=$c.SharedPathReferences; Note='Scheduled tasks, mapped drives and IIS content that reach another scanned server by name or IP.' }
+        @{ Title='Similar share names across servers'; Rows=$c.SimilarShareNames; Note='The same share name on a source and a target (or an _old / dated copy) may be an existing target share or an earlier partial migration.' }
+        @{ Title='DNS references to retiring servers'; Rows=$c.DnsReferencesToRetiring; Note='' }
+        @{ Title='SMTP relay clients'; Rows=$c.SmtpClients; Note='From existing logs only. Absence here is not proof that nothing relays.' }
+        @{ Title='Domain controllers'; Rows=$c.DomainControllers; Note='' }
+        @{ Title='Entra Connect servers'; Rows=$c.EntraConnect; Note=[string]$c.EntraConnectNote }
+        @{ Title='Hypervisor guest/host relationships'; Rows=$c.HypervisorRelationships; Note='' }
+    )
+    return ,@($list | Where-Object { @($_.Rows).Count -gt 0 })
+}
+
 function Write-FleetRollupHtml {
     <# Printable rollup: reads start to finish like the single-server internal-engineering-report.html - one linear, print-friendly page. See Write-FleetDashboardReport for the interactive companion. #>
     param([Parameter(Mandatory)][object]$Model, [Parameter(Mandatory)][string]$EngagementFolder, [Parameter(Mandatory)][string]$Path)
@@ -422,6 +624,14 @@ function Write-FleetRollupHtml {
         foreach ($g in $Model.DependencyHints) { [void]$html.AppendLine("<tr><td>$(& $esc $g.SuggestedGroupLabel)</td><td>$(& $esc ($g.ComputerNames -join ', '))</td><td>$(& $esc $g.Rationale)</td></tr>") }
         [void]$html.AppendLine('</table>')
     }
+
+    $retiringText = if ($Model.Correlations -and @($Model.Correlations.RetiringServers).Count) { ($Model.Correlations.RetiringServers -join ', ') } else { 'none specified' }
+    foreach ($cs in (Get-FleetCorrelationSections -Model $Model)) {
+        [void]$html.AppendLine(('<h2>{0}</h2>' -f (& $esc $cs.Title)))
+        if ($cs.Note) { [void]$html.AppendLine(('<p class="muted">{0}</p>' -f (& $esc $cs.Note))) }
+        [void]$html.AppendLine((ConvertTo-FleetHtmlTable -Rows $cs.Rows))
+    }
+    if ($Model.Correlations) { [void]$html.AppendLine(('<p class="muted">Retiring servers used for correlation: {0}.</p>' -f (& $esc $retiringText))) }
 
     foreach ($section in @(
         @{ Title = 'Decommission readiness (all servers)'; Rows = $Model.DecommissionReadiness }
@@ -793,6 +1003,13 @@ function Write-FleetDashboardReport {
         & $addNavAndPane $section.Title ([string]@($section.Rows).Count) $body
     }
 
+    $corr = Get-FleetCorrelationSections -Model $Model
+    if (@($corr).Count) { [void]$sb.AppendLine('<div class="grp">Correlations</div>') }
+    foreach ($cs in $corr) {
+        $body = "<h2>$(& $esc $cs.Title)</h2>" + $(if ($cs.Note) { '<p class="pd">' + (& $esc $cs.Note) + '</p>' } else { '' }) + '<div class="filterrow"><input type="text" placeholder="Filter rows..." data-filtertarget="1"></div><div class="tablebox">' + (ConvertTo-FleetHtmlTable -Rows $cs.Rows) + '</div>'
+        & $addNavAndPane $cs.Title ([string]@($cs.Rows).Count) $body
+    }
+
     [void]$sb.AppendLine('</nav><main class="main">')
     [void]$sb.Append($panes.ToString())
     [void]$sb.AppendLine('</main></div>')
@@ -867,7 +1084,7 @@ function Get-FleetClientHeadlines {
     #>
     param([Parameter(Mandatory)][string]$EngagementFolder)
     $rows = Merge-FleetDataset -EngagementFolder $EngagementFolder -DatasetName 'ScopingRisks'
-    $safe = @($rows | Where-Object { $_.Severity -in @('Critical','High') -and $_.Title } |
+    $safe = @($rows | Where-Object { $_.Severity -in @('Critical','High') -and $_.Title -and -not ($_.PSObject.Properties['ClientSafe'] -and $_.ClientSafe -eq $false) } |
         ForEach-Object { [pscustomobject]@{ Title = [string]$_.Title; Category = [string]$_.Category; WhyItMatters = [string]$_.WhyItMattersForScoping; ComputerName = [string]$_.ComputerName } })
     return ,@($safe | Group-Object Title | ForEach-Object {
         [pscustomobject]@{
@@ -917,6 +1134,9 @@ function Get-FleetClientModel {
         Sort-Object 'Third-party product', Server -Unique)
     $hybrid = @(Get-FleetClientSafeDataset -EngagementFolder $EngagementFolder -DatasetName 'HybridIdentity' |
         ForEach-Object { [pscustomobject]@{ 'Cloud connection' = [string]$_.Component; 'What it does' = [string]$_.Role; Server = [string]$_.ComputerName } })
+    $stacks = @(Get-FleetClientSafeDataset -EngagementFolder $EngagementFolder -DatasetName 'AppStackSummary' |
+        ForEach-Object { [pscustomobject]@{ Application = [string]$_.Stack; Server = [string]$_.ComputerName; 'Role of the server' = [string]$_.HostRole } } |
+        Sort-Object Application, Server)
     $backupRows = @(Get-FleetClientSafeDataset -EngagementFolder $EngagementFolder -DatasetName 'BackupDiscovery')
     $backedUpServers = @($backupRows.ComputerName | Select-Object -Unique)
     $notBackedUpServers = @($serverStatus | Where-Object { $_.Reviewed -and $backedUpServers -notcontains $_.ComputerName } | ForEach-Object { $_.ComputerName })
@@ -941,6 +1161,7 @@ function Get-FleetClientModel {
         Printers        = $printers
         Vendors         = $vendors
         HybridIdentity  = $hybrid
+        AppStacks       = $stacks
         BackedUpServers = $backedUpServers
         NotBackedUpServers = $notBackedUpServers
         Readiness       = $readiness
@@ -1013,6 +1234,7 @@ function Write-FleetClientHtmlReport {
     }
     if (@($Model.Shares).Count -gt 0) { [void]$html.AppendLine('<h3>Shared folders</h3>'); [void]$html.AppendLine((ConvertTo-FleetHtmlTable -Rows $Model.Shares)) }
     if (@($Model.Printers).Count -gt 0) { [void]$html.AppendLine('<h3>Shared printers</h3>'); [void]$html.AppendLine((ConvertTo-FleetHtmlTable -Rows $Model.Printers)) }
+    if (@($Model.AppStacks).Count -gt 0) { [void]$html.AppendLine('<h3>Line-of-business application components by server</h3><p class="muted">Server and workstation versions need confirming with the software vendor before any change.</p>'); [void]$html.AppendLine((ConvertTo-FleetHtmlTable -Rows $Model.AppStacks)) }
     if (@($Model.HybridIdentity).Count -gt 0) { [void]$html.AppendLine('<h3>Connections to Microsoft 365 / Azure</h3>'); [void]$html.AppendLine((ConvertTo-FleetHtmlTable -Rows $Model.HybridIdentity)) }
     if (@($Model.Vendors).Count -gt 0) {
         [void]$html.AppendLine('<h3>Third-party products installed</h3><p class="muted">If any of these are no longer under contract, tell us - it changes the plan.</p>')
@@ -1058,6 +1280,7 @@ function Write-FleetClientMarkdownReport {
         'Business applications we recognised' = $Model.Applications
         'Shared folders' = $Model.Shares
         'Shared printers' = $Model.Printers
+        'Line-of-business application components by server' = $Model.AppStacks
         'Connections to Microsoft 365 / Azure' = $Model.HybridIdentity
         'Third-party products installed' = $Model.Vendors
     }
@@ -1086,12 +1309,14 @@ function New-FleetRollupReport {
     <# Writes fleet-rollup.json/.csv (combined risk register), fleet-rollup.html (printable) and fleet-dashboard-report.html (interactive) under -OutputPath. #>
     param(
         [Parameter(Mandatory)][string]$EngagementFolder,
-        [string]$OutputPath
+        [string]$OutputPath,
+        [string[]]$RetiringServers = @(),
+        [string[]]$TargetServers = @()
     )
     if (-not $OutputPath) { $OutputPath = Join-Path $EngagementFolder 'rollup' }
     if (-not (Test-Path -LiteralPath $OutputPath)) { New-Item -ItemType Directory -Path $OutputPath -Force | Out-Null }
 
-    $model = Get-FleetRollupModel -EngagementFolder $EngagementFolder
+    $model = Get-FleetRollupModel -EngagementFolder $EngagementFolder -RetiringServers $RetiringServers -TargetServers $TargetServers
 
     $rollupData = [ordered]@{
         GeneratedTime    = (Get-Date).ToString('o')
@@ -1102,8 +1327,10 @@ function New-FleetRollupReport {
         DecommissionReadiness = $model.DecommissionReadiness
         ScopeAssumptions = $model.ScopeAssumptions
         ScopeExclusions  = $model.ScopeExclusions
+        Correlations     = $model.Correlations
     }
     ($rollupData | ConvertTo-Json -Depth 8) | Out-File -LiteralPath (Join-Path $OutputPath 'fleet-rollup.json') -Encoding UTF8 -Force
+    if ($model.Correlations) { ($model.Correlations | ConvertTo-Json -Depth 6) | Out-File -LiteralPath (Join-Path $OutputPath 'fleet-correlations.json') -Encoding UTF8 -Force }
     if ($model.RiskRegister.Count -gt 0) { $model.RiskRegister | Export-Csv -LiteralPath (Join-Path $OutputPath 'fleet-rollup-risks.csv') -NoTypeInformation -Force }
 
     $htmlPath = Join-Path $OutputPath 'fleet-rollup.html'
@@ -1140,6 +1367,6 @@ function New-FleetRollupReport {
 # read-only, local-only pass over already-finished output).
 if ($MyInvocation.InvocationName -ne '.') {
     if (-not $EngagementFolder) { throw '-EngagementFolder is required.' }
-    $report = New-FleetRollupReport -EngagementFolder $EngagementFolder -OutputPath $OutputPath
+    $report = New-FleetRollupReport -EngagementFolder $EngagementFolder -OutputPath $OutputPath -RetiringServers $RetiringServers -TargetServers $TargetServers
     Write-Host ("Rollup built: {0} server(s), {1} finding(s) -> {2}" -f $report.ServerCount, $report.FindingCount, $report.HtmlPath) -ForegroundColor Green
 }

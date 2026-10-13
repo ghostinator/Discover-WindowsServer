@@ -6,7 +6,7 @@
     CompanyName       = 'Brandon Cook'
     Description       = 'ActiveDirectory collector module for the Windows Server Discovery Toolkit.'
     PowerShellVersion = '5.1'
-    FunctionsToExport = @('ConvertTo-AdFunctionalLevelName','ConvertTo-DiscoveryDatasets','Get-DiscoveryModuleMetadata','Invoke-DiscoveryCollection','Test-DiscoveryPrerequisites')
+    FunctionsToExport = @('ConvertFrom-NetdomFsmo','ConvertFrom-RepadminReplSummary','ConvertTo-AdFunctionalLevelName','ConvertTo-DiscoveryDatasets','Get-AdDcInventory','Get-DiscoveryModuleMetadata','Invoke-DiscoveryCollection','Test-AdDcOsUnsupported','Test-DiscoveryPrerequisites')
     CmdletsToExport   = @()
     VariablesToExport = @()
     AliasesToExport   = @()

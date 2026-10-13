@@ -14,9 +14,14 @@ work.
 - **One server or a whole fleet:** run it on a server, or point the GUI's **Fleet** tab at
   Active Directory or a subnet and scan dozens of servers from one console, with one combined
   report at the end. See [Fleet discovery](#fleet-discovery).
-- **29 collectors**, from AD, DNS, DHCP, SQL, IIS, Hyper-V and clustering to file shares,
-  certificates, backup agents and licensing, plus a **risk engine with 106 rules** and an
+- **33 collectors**, from AD, DNS, DHCP, SQL, ODBC, IIS, Exchange/SMTP relay, Hyper-V and
+  clustering to file shares, printers, Entra Connect, line-of-business application stacks,
+  certificates, backup agents and licensing, plus a **risk engine with 174 rules** and an
   **A–F readiness score** per server.
+- **Migration and decommission scoping:** SMTP relay clients from existing logs (never "unused"
+  just because no evidence was found), application server/client version correlation across a
+  fleet, target-capacity comparison and named decommission states. See
+  [docs/MIGRATION-SCOPING.md](docs/MIGRATION-SCOPING.md).
 - **Deliverables, not just data:** an internal engineering report, an interactive dashboard,
   a client-safe report, draft scope language, client interview questions, a scream-test plan,
   a dependency diagram and more. See [What you get](#what-you-get).
@@ -105,6 +110,7 @@ with gaps recorded as limitations).
 | Fast scan (default) | `Invoke-DiscoverWindowsServer` | `.\Discover-WindowsServer.ps1` |
 | Deep scan, decommission | `Invoke-DiscoverWindowsServer -Mode Deep -ProjectType Decommission` | `.\Discover-WindowsServer.ps1 -Mode Deep -ProjectType Decommission` |
 | CMMC lens | `Invoke-DiscoverWindowsServer -ComplianceLens CMMC` | `.\Discover-WindowsServer.ps1 -ComplianceLens CMMC` |
+| Migration / decommission scoping (SQL inventory, 30 days of SMTP evidence) | `Invoke-DiscoverWindowsServer -Mode Deep -ProjectType Decommission -AttemptSqlIntegratedAuth -ExchangeLogDays 30` | `.\Discover-WindowsServer.ps1 -Mode Deep -ProjectType Decommission -AttemptSqlIntegratedAuth -ExchangeLogDays 30` |
 
 `Invoke-DiscoverWindowsServer` takes exactly the same parameters as `Discover-WindowsServer.ps1`
 (see [docs/README.md](docs/README.md) for all of them).
@@ -151,7 +157,7 @@ What each tab does:
 | Tab | What you set there |
 |---|---|
 | **Basics** | Mode (**Fast**, **Deep**, or **Custom**), project type, compliance lens, and output folder. |
-| **Options** | Extra collection: a deep file-share scan, full event-log export, a scan of application config files for hard-coded dependencies (SQL servers and connection strings, UNC paths, IP addresses, SMTP/LDAP/HTTP endpoints, license servers; secrets are flagged by location, never copied), user-profile folders, the recycle bin, `C:\Windows`, SQL integrated-auth enumeration, a SHA-256 evidence manifest, skipping the zip, and verbose logging. **Tuning** sets share-scan depth, the large-file and old-file thresholds, event-log days and samples, and the config-scan file-size cap. |
+| **Options** | Extra collection: a deep file-share scan, full event-log export, a scan of application config files for hard-coded dependencies (SQL servers and connection strings, UNC paths, IP addresses, SMTP/LDAP/HTTP endpoints, license servers; secrets are flagged by location, never copied), user-profile folders, the recycle bin, `C:\Windows`, SQL integrated-auth enumeration, a SHA-256 evidence manifest, skipping the zip, and verbose logging. **Migration scoping** holds the two privacy-sensitive options (copy raw Exchange logs; include full email addresses and session user names), both off by default and shown in red, plus an optional VMware/RMM inventory file to import. **Tuning** sets share-scan depth, the large-file and old-file thresholds, event-log days and samples, the Exchange/SMTP log lookback, and the config-scan file-size cap. The deep file-share scan is labelled as expensive. |
 | **Custom Modules** | Pick exactly which collectors run (with Mode = Custom). Choosing Fast or Deep first ticks that mode's modules so you can compare and fine-tune. |
 | **Delivery** | After the run, email the zip by SMTP, SMTP2GO, SendGrid or Postal, or upload it to an HTTPS URL (for example a pre-signed S3 or Azure Blob URL). Upload and Postal URLs must be HTTPS. Credentials can be saved encrypted for your Windows account (DPAPI), so you aren't prompted every time. |
 | **Fleet** | Scan many servers at once. See [Fleet discovery](#fleet-discovery). |
@@ -278,14 +284,15 @@ safe source for screenshots and sales demos.
 
 ## What it covers
 
-**29 collectors**, grouped:
+**33 collectors**, grouped:
 
 | Area | Collectors |
 |---|---|
-| Identity & core services | Active Directory / domain context, DNS Server, DHCP Server, Certificates & PKI (including an AD CS CA), NPS / RADIUS / VPN / MFA, hybrid identity & cloud attachment, Remote Desktop Services, time sync |
+| Identity & core services | Active Directory & migration readiness (DC inventory, FSMO, replication, SYSVOL, dcdiag), DNS Server (zones, conditional forwarders), DHCP Server (scopes, options, failover, lease counts), Certificates & PKI (including an AD CS CA), NPS / RADIUS / VPN / MFA, hybrid identity & Entra Connect, Remote Desktop Services, time sync |
 | Platform | System inventory, roles & features, storage (including iSCSI), network configuration & connections, performance snapshot, Windows Update / patch posture, licensing |
-| Virtualization & HA | Hyper-V (VMs, disks, checkpoints, switches), failover clustering |
-| Applications & data | Installed applications with business-app fingerprinting, SQL Server & databases, IIS, file shares & DFS, print server, services & scheduled tasks, config-file dependency scan (Deep) |
+| Virtualization & HA | Hyper-V (VMs, disks, checkpoints, switches, unattached disks/ISOs), imported VMware/RMM inventory, failover clustering |
+| Applications & data | Installed applications with business-app fingerprinting, application stacks (Sage 300 CRE, Actian/Pervasive - config-driven), SQL Server, databases & ODBC, IIS, Exchange Server & SMTP relay evidence, file shares, DFS & migration readiness, printers, services & scheduled tasks, config-file dependency scan (Deep) |
+| Migration planning | Workload & target-capacity profile per server, decommission states, fleet correlations (stack versions, source/target capacity, references to retiring servers) - see [docs/MIGRATION-SCOPING.md](docs/MIGRATION-SCOPING.md) |
 | Security & operations | Security posture, event logs & audit policy, backup & DR, vendor / RMM / security agents, user profiles & user-context dependencies |
 
 **Modes:** **Fast** (the default) is quick scoping: primary role, obvious dependencies, major
@@ -298,8 +305,9 @@ collectors you pick. Every mode is read-only.
 `HyperVRefresh`, `Decommission`, `AzureMigration`, `AppMigration`, `CMMCReadiness`. The chosen type's
 most relevant findings lead the report. **Compliance lenses:** `CMMC` or `GeneralSecurity`.
 
-**Risk engine:** 106 rules turn the collected data into findings, each with a severity, a
-confidence level and its evidence. Each server gets an **A–F readiness score**. See
+**Risk engine:** 174 rules turn the collected data into findings, each with a severity, a
+confidence level, its evidence, a normalized risk category (SMTP relay, Database migration, DNS
+cutover, ...) and whether it is safe for the client report. Each server gets an **A–F readiness score**. See
 [docs/RISK-SCORING.md](docs/RISK-SCORING.md).
 
 ## What you get
@@ -363,6 +371,8 @@ git config core.hooksPath .githooks
 |---|---|
 | [docs/README.md](docs/README.md) | Full usage: modes, project types, every parameter, config precedence |
 | [docs/OUTPUT-GUIDE.md](docs/OUTPUT-GUIDE.md) | Every artifact the toolkit produces and how to read it |
+| [docs/MIGRATION-SCOPING.md](docs/MIGRATION-SCOPING.md) | SQL/ODBC, IIS, Exchange & SMTP relay, application stacks, file/print, Entra Connect, AD readiness, capacity and decommission states: what is collected, permissions, privacy options, how to read "not found" vs "logging disabled" |
+| [CHANGELOG.md](CHANGELOG.md) | Release notes |
 | [docs/FIELD-USAGE.md](docs/FIELD-USAGE.md) | The collector⇄RiskEngine field contract |
 | [docs/RISK-SCORING.md](docs/RISK-SCORING.md) | How findings get severity, confidence and impact |
 | [docs/MODULE-DEVELOPMENT.md](docs/MODULE-DEVELOPMENT.md) | Writing a new collector, and the safety rules |

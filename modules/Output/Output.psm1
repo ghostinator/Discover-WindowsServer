@@ -573,9 +573,57 @@ function Get-InternalReportSectionMap {
         'Time Synchronization'     = 'TimeSync'
         'Mapped Drives (user context)' = 'MappedDrives'
         'User Profiles'            = 'UserProfiles'
+        # Migration-scoping sections. A value is a dataset name, or @{ Dataset; Filter } for a
+        # filtered view of a large dataset (the full dataset is always in the CSV/JSON export).
+        'Decommission States'          = 'DecommissionStates'
+        'Server Workload & Capacity'   = 'WorkloadProfile'
+        'Application Stacks'           = 'AppStackSummary'
+        'Application Stack Evidence'   = 'AppStackEvidence'
+        'SQL Server Summary'           = 'SqlServerSummary'
+        'SQL Services'                 = 'SqlServices'
+        'SQL Databases'                = 'SqlDatabases'
+        'ODBC DSNs (system)'           = 'OdbcDsns'
+        'ODBC DSNs (per user)'         = 'UserOdbcDsns'
+        'IIS Bindings'                 = 'IisBindings'
+        'IIS Application Pools'        = 'IisAppPools'
+        'IIS Applications'             = 'IisApplications'
+        'Exchange Server'              = 'ExchangeServer'
+        'Exchange Receive Connectors'  = 'ExchangeReceiveConnectors'
+        'Exchange Send Connectors'     = 'ExchangeSendConnectors'
+        'SMTP Relay Assessment'        = 'SmtpRelayAssessment'
+        'SMTP Relay Clients'           = 'SmtpRelayClients'
+        'File Shares'                  = @{ Dataset = 'SmbShares'; Filter = { $_.IsUserShare } }
+        'File Share Deep Scan'         = 'NtfsAclSummary'
+        'Share Root Permissions'       = 'ShareRootAcl'
+        'Share Activity'               = 'ShareActivity'
+        'Azure File Sync'              = 'AzureFileSync'
+        'Printers'                     = 'Printers'
+        'Print Summary'                = 'PrintServerSummary'
+        'Entra Connect'                = 'EntraConnectDetail'
+        'Domain Controllers'           = 'AdDomainControllers'
+        'FSMO Roles'                   = 'AdFsmoRoles'
+        'AD Replication'               = 'AdReplicationSummary'
+        'DC Health (dcdiag)'           = 'AdHealthChecks'
+        'DNS Zones'                    = 'DnsZones'
+        'DHCP Summary'                 = 'DhcpServerSummary'
+        'Non-Microsoft Services'       = @{ Dataset = 'Services'; Filter = { $_.IsNonMicrosoftAutoStart } }
+        'Non-Microsoft Scheduled Tasks' = @{ Dataset = 'ScheduledTasks'; Filter = { [string]$_.TaskPath -notlike '\Microsoft\*' } }
+        'Event-Log Errors by Workload' = 'EventLogDependencyAreas'
+        'Hyper-V Unattached Files'     = 'HyperVUnattachedFiles'
+        'Imported Hypervisor Inventory' = 'HypervisorInventorySummary'
         'Readiness Score - Subsections' = 'ReadinessScoreSubsections'
         'Dependency Graph (table)' = 'DependencyGraph'
     }
+}
+
+function Get-InternalReportSectionRows {
+    <# Rows for one section-map entry (a dataset name or @{ Dataset; Filter }), or an empty array. #>
+    param([object]$Context, $Entry)
+    $name = if ($Entry -is [System.Collections.IDictionary]) { [string]$Entry.Dataset } else { [string]$Entry }
+    if (-not $Context.DataSets.Contains($name)) { return ,@() }
+    $rows = @($Context.DataSets[$name].Rows)
+    if ($Entry -is [System.Collections.IDictionary] -and $Entry.Filter) { $rows = @($rows | Where-Object $Entry.Filter) }
+    return ,$rows
 }
 
 # Edge types with no real diagnostic value for a dependency PICTURE (as opposed to the full
@@ -823,9 +871,10 @@ function Get-InternalReportModel {
 
     $sectionMap = Get-InternalReportSectionMap
     $sections = foreach ($h in $sectionMap.Keys) {
-        $dsName = $sectionMap[$h]
-        if ($Context.DataSets.Contains($dsName) -and @($Context.DataSets[$dsName].Rows).Count -gt 0) {
-            [pscustomobject]@{ Title = $h; Dataset = $dsName; Rows = $Context.DataSets[$dsName].Rows }
+        $entry = $sectionMap[$h]
+        $secRows = Get-InternalReportSectionRows -Context $Context -Entry $entry
+        if ($secRows.Count -gt 0) {
+            [pscustomobject]@{ Title = $h; Dataset = $(if ($entry -is [System.Collections.IDictionary]) { [string]$entry.Dataset } else { [string]$entry }); Rows = $secRows }
         }
     }
 
@@ -1324,6 +1373,14 @@ function Get-LikelyServerFunctions {
         }
     }
     if (Test-DatasetFieldTrue -Context $Context -Dataset 'TimeSync' -Field 'IsAuthoritativeTimeSource') { $funcs.Add('Authoritative Time Source') }
+    if (Test-DatasetHasRows -Context $Context -Dataset 'ExchangeServer') {
+        $ex = @($Context.DataSets['ExchangeServer'].Rows)[0]
+        $funcs.Add($(if ($ex.ManagementToolsOnly) { 'Exchange management tools only' } else { 'Exchange Server' }))
+    }
+    if (Test-DatasetFieldTrue -Context $Context -Dataset 'SmtpRelayAssessment' -Field 'IisSmtpServicePresent') { $funcs.Add('SMTP relay (IIS SMTP service)') }
+    if (Test-DatasetHasRows -Context $Context -Dataset 'AppStackSummary') {
+        foreach ($s in @($Context.DataSets['AppStackSummary'].Rows)) { $funcs.Add(('{0} - {1}' -f $s.Stack, $s.HostRole)) }
+    }
 
     return @($funcs | Select-Object -Unique)
 }

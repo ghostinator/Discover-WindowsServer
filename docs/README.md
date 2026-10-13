@@ -121,6 +121,10 @@ project type you choose. `GeneralDiscovery` applies no lens.
 | `-GenerateEvidenceManifest` | Produce SHA256 hashes + evidence metadata |
 | `-SkipZip` | Do not create the ZIP archive |
 | `-Quiet` / `-VerboseLogging` | Console verbosity |
+| `-ExchangeLogDays` | Lookback for EXISTING Exchange message-tracking / SMTP protocol logs (Fast 7, Deep 14). Logging is never enabled by the toolkit |
+| `-CopyExchangeRawLogs` | **Privacy-sensitive, off by default.** Copy the in-window raw Exchange logs to `evidence\raw\exchange-logs` |
+| `-IncludeSensitiveEvidence` | **Privacy-sensitive, off by default.** Keep full sample email addresses, message IDs and SMB session user names (otherwise `*@domain` / withheld) |
+| `-HypervisorInventoryPath` | Import a VMware / RMM VM inventory (CSV/JSON) for host decommissioning - schema in [MIGRATION-SCOPING.md](MIGRATION-SCOPING.md) |
 
 ### Where parameter values come from
 
@@ -156,6 +160,7 @@ Start with **`internal-report.html`** (engineers) and **`client-safe-summary.md`
 
 ## Documentation
 
+- [MIGRATION-SCOPING.md](MIGRATION-SCOPING.md) — SQL/ODBC, IIS, Exchange & SMTP relay, application stacks, file/print, Entra Connect, AD readiness, capacity, decommission states; permissions, privacy options, troubleshooting
 - [OUTPUT-GUIDE.md](OUTPUT-GUIDE.md) — what each output file/folder contains
 - [FIELD-USAGE.md](FIELD-USAGE.md) — canonical datasets/fields (collector ⇄ risk engine contract)
 - [RISK-SCORING.md](RISK-SCORING.md) — finding model, severities, rule engine, compliance lens

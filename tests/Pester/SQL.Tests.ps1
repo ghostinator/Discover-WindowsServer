@@ -205,3 +205,110 @@ Describe 'Invoke-DiscoveryCollection - other database engines' {
         $raw.OtherDatabaseEngines.Count | Should -Be 0
     }
 }
+
+Describe 'Get-SqlInstanceClassification - default and named instances' {
+    It 'leaves a default instance with no application signal as Unknown, not guessed' {
+        $c = Get-SqlInstanceClassification -InstanceName $env:COMPUTERNAME -Edition 'Standard Edition' -IsWid $false
+        $c.Classification | Should -Be 'General-purpose / unknown'
+        $c.Confidence | Should -Be 'Unknown'
+    }
+    It 'classifies a BKUPEXEC named instance as Likely from the name alone' {
+        $c = Get-SqlInstanceClassification -InstanceName 'HOST\BKUPEXEC' -Edition 'Express Edition' -IsWid $false
+        $c.Classification | Should -Be 'Backup Exec catalog'
+        $c.Confidence | Should -Be 'Likely'
+    }
+    It 'raises it to Confirmed when an independent service corroborates the name' {
+        $svc = @([pscustomobject]@{ Name='BackupExecRPCService'; DisplayName='Backup Exec Server' })
+        $c = Get-SqlInstanceClassification -InstanceName 'HOST\BKUPEXEC' -Edition '' -IsWid $false -ServiceRows $svc
+        $c.Confidence | Should -Be 'Confirmed'
+        $c.Evidence | Should -Match 'Backup Exec Server'
+    }
+    It 'calls any other named instance application-specific with Possible confidence' {
+        $c = Get-SqlInstanceClassification -InstanceName 'HOST\ACCTG' -Edition 'Standard Edition' -IsWid $false
+        $c.Classification | Should -Be 'Application-specific named instance'
+        $c.Confidence | Should -Be 'Possible'
+    }
+    It 'recognises WID with certainty' {
+        (Get-SqlInstanceClassification -InstanceName 'MSSQL$MICROSOFT##WID' -IsWid $true).Confidence | Should -Be 'Confirmed'
+    }
+}
+
+Describe 'Get-SqlVersionInfo / Get-SqlAccountType / Get-SqlServiceRole' {
+    It 'maps builds to products and support state as of a given date' {
+        $v = Get-SqlVersionInfo -Version '12.0.6024.0' -AsOf ([datetime]'2026-10-13')
+        $v.ProductName | Should -Be 'SQL Server 2014'
+        $v.IsUnsupported | Should -BeTrue
+        (Get-SqlVersionInfo -Version '10.50.6000.34').ProductName | Should -Be 'SQL Server 2008 R2'
+        (Get-SqlVersionInfo -Version '15.0.4153.1' -AsOf ([datetime]'2026-10-13')).IsUnsupported | Should -BeFalse
+        (Get-SqlVersionInfo -Version '').ProductName | Should -Be ''
+    }
+    It 'classifies service accounts' {
+        Get-SqlAccountType -Account 'LocalSystem' | Should -Be 'LocalSystem'
+        Get-SqlAccountType -Account 'NT Service\MSSQL$SQLEXPRESS' | Should -Be 'VirtualAccount'
+        Get-SqlAccountType -Account 'CORP\svc-sql' | Should -Be 'DomainAccount'
+        Get-SqlAccountType -Account 'CORP\gmsa-sql$' | Should -Be 'ManagedServiceAccount'
+    }
+    It 'maps SQL service names to roles and instances' {
+        (Get-SqlServiceRole -Name 'SQLAgent$SAGE').Role | Should -Be 'SQL Agent'
+        (Get-SqlServiceRole -Name 'SQLAgent$SAGE').Instance | Should -Be 'SAGE'
+        (Get-SqlServiceRole -Name 'SQLSERVERAGENT').Instance | Should -Be 'MSSQLSERVER'
+        (Get-SqlServiceRole -Name 'SQLBrowser').Role | Should -Be 'SQL Browser'
+        (Get-SqlServiceRole -Name 'SQLWriter').Role | Should -Be 'VSS Writer'
+        (Get-SqlServiceRole -Name 'MSSQLFDLauncher$SAGE').Role | Should -Be 'Full-Text'
+        Get-SqlServiceRole -Name 'Spooler' | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'Invoke-DiscoveryCollection - named instance ports and connection failure' {
+    BeforeEach {
+        $script:SqlRegistryValues = @{
+            'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.ACCTG\Setup|Version' = '15.0.2000.5'
+            'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.ACCTG\Setup|Edition' = 'Standard Edition'
+            'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.ACCTG\MSSQLServer\SuperSocketNetLib\Tcp\IPAll|TcpDynamicPorts' = '49731'
+            'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL15.ACCTG\MSSQLServer\SuperSocketNetLib\Tcp|Enabled' = 1
+        }
+    }
+
+    It 'detects a named instance, its dynamic port and agent state' {
+        $ctx = New-SqlTestContext
+        Add-DataSet -Context $ctx -Name 'Services' -Rows @(
+            [pscustomobject]@{ Name='MSSQL$ACCTG'; DisplayName='SQL Server (ACCTG)'; Status='Running'; StartMode='Auto'; StartName='CORP\svc-sql'; ExecutablePath='C:\x\sqlservr.exe' }
+            [pscustomobject]@{ Name='SQLAgent$ACCTG'; DisplayName='SQL Server Agent (ACCTG)'; Status='Stopped'; StartMode='Disabled'; StartName='CORP\svc-sql'; ExecutablePath='C:\x\SQLAGENT.EXE' }
+        ) | Out-Null
+        Set-SqlRegistryValuesMock
+        Mock -CommandName Test-RegistryPathSafe -ModuleName SQL -MockWith { $Path -eq 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL' }
+        Mock -CommandName Get-ItemProperty -ModuleName SQL -MockWith { [pscustomobject]@{ ACCTG = 'MSSQL15.ACCTG'; PSPath='x'; PSParentPath='x'; PSChildName='x'; PSDrive='x'; PSProvider='x' } }
+        Mock -CommandName Invoke-CimSafe -ModuleName SQL -MockWith { ,@() }
+        $raw = Invoke-DiscoveryCollection -Context $ctx
+        $row = @($raw.SqlInstances)[0]
+        $row.InstanceName | Should -Be "$env:COMPUTERNAME\ACCTG"
+        $row.UsesDynamicPort | Should -BeTrue
+        $row.TcpDynamicPorts | Should -Be '49731'
+        $row.AgentDisabled | Should -BeTrue
+        $row.ServiceAccountType | Should -Be 'DomainAccount'
+        $row.ConnectionStatus | Should -Be 'NotAttempted'
+        $raw.SqlServerSummary[0].AnyAgentDisabled | Should -BeTrue
+    }
+
+    It 'records a failed integrated-auth connection per instance and keeps going' {
+        InModuleScope SQL -Parameters @{ Cfg = $script:Config; Reg = $script:SqlRegistryValues } {
+            param($Cfg, $Reg)
+            $script:Reg = $Reg
+            Mock Get-RegistryValueSafe { $k = '{0}|{1}' -f $Path, $Name; if ($script:Reg.ContainsKey($k)) { $script:Reg[$k] } else { $null } }
+            Mock Test-RegistryPathSafe { $Path -eq 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL' }
+            Mock Get-ItemProperty { [pscustomobject]@{ ACCTG = 'MSSQL15.ACCTG'; PSPath='x'; PSParentPath='x'; PSChildName='x'; PSDrive='x'; PSProvider='x' } }
+            Mock Invoke-CimSafe { ,@() }
+            Mock Invoke-SqlIntegratedQuery { [pscustomobject]@{ Success=$false; Error='Login failed for user'; Databases=@(); Files=@(); Jobs=@(); Linked=@(); Logins=@(); Config=@() } }
+            $ctx = New-DiscoveryContext -Mode Deep -Config $Cfg -Parameters @{ AttemptSqlIntegratedAuth = $true }
+            $raw = Invoke-DiscoveryCollection -Context $ctx
+            $row = @($raw.SqlInstances)[0]
+            $row.ConnectionStatus | Should -Be 'Failed'
+            $row.ConnectionError | Should -Match 'Login failed'
+            $row.DeepQueryPerformed | Should -BeFalse
+            $raw.SqlServerSummary[0].InstancesNotEnumerated | Should -Be 1
+            $raw.SqlServerSummary[0].DatabasesEnumerated | Should -BeFalse
+            ($ctx.Limitations | Where-Object { $_.Message -match 'Integrated-auth query' }) | Should -Not -BeNullOrEmpty
+            ($ctx.Unknowns | Where-Object { $_.Unknown -match 'enumeration failed' }) | Should -Not -BeNullOrEmpty
+        }
+    }
+}

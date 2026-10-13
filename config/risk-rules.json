@@ -2745,6 +2745,1800 @@
       "suggestedValidationQuestion": "Does the roaming profile share referenced here survive the migration?",
       "sourceModule": "UserProfiles",
       "sourceDataset": "UserProfiles"
+    },
+    {
+      "id": "RULE-SQL-010",
+      "enabled": true,
+      "category": "Database",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "SQL Server version is past end of extended support",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SqlInstances",
+        "field": "IsUnsupportedVersion",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "InstanceName",
+      "evidenceTemplate": "{InstanceName}: {ProductName} {Edition} ({Version}); extended support ended {ExtendedSupportEnd}",
+      "whyItMattersForScoping": "An unsupported SQL Server version limits which target OS and SQL versions the databases can move to directly, and may require an intermediate upgrade.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Licensing",
+        "Security/Compliance"
+      ],
+      "suggestedValidationQuestion": "Which application vendor supports moving {InstanceName} to a current SQL Server version?",
+      "sourceModule": "SQL",
+      "sourceDataset": "SqlInstances",
+      "riskCategory": "Unsupported software",
+      "projectTypeEmphasis": [
+        "Decommission",
+        "ServerRefresh",
+        "AzureMigration",
+        "AppMigration"
+      ]
+    },
+    {
+      "id": "RULE-SQL-011",
+      "enabled": true,
+      "category": "Database",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Multiple SQL Server versions on one server",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SqlServerSummary",
+        "field": "MultipleSqlVersions",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "ProductVersions",
+      "evidenceTemplate": "Versions on this server: {ProductVersions}",
+      "whyItMattersForScoping": "Each version is its own migration path and compatibility check; consolidating them onto one target needs per-application validation.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Labor"
+      ],
+      "suggestedValidationQuestion": "Do the applications using each SQL version support being moved to a single, current version?",
+      "sourceModule": "SQL",
+      "sourceDataset": "SqlServerSummary",
+      "riskCategory": "Database migration",
+      "projectTypeEmphasis": [
+        "Decommission",
+        "ServerRefresh",
+        "AzureMigration",
+        "AppMigration"
+      ]
+    },
+    {
+      "id": "RULE-SQL-012",
+      "enabled": true,
+      "category": "Database",
+      "severity": "Medium",
+      "confidence": "Likely",
+      "title": "Several application-specific SQL instances on one server",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SqlServerSummary",
+        "field": "MultipleApplicationInstances",
+        "value": true
+      },
+      "whyItMattersForScoping": "Application-bundled instances usually move with their application, on the vendor's schedule, not as one database migration.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Vendor Dependency",
+        "Client Coordination"
+      ],
+      "suggestedValidationQuestion": "Which application owns each SQL instance, and does each vendor have its own migration procedure?",
+      "sourceModule": "SQL",
+      "sourceDataset": "SqlServerSummary",
+      "riskCategory": "Database migration",
+      "projectTypeEmphasis": [
+        "Decommission",
+        "ServerRefresh",
+        "AzureMigration",
+        "AppMigration"
+      ]
+    },
+    {
+      "id": "RULE-SQL-013",
+      "enabled": true,
+      "category": "Database",
+      "severity": "Low",
+      "confidence": "Confirmed",
+      "title": "SQL Agent is disabled or not running",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SqlInstances",
+        "field": "AgentDisabled",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "InstanceName",
+      "evidenceTemplate": "{InstanceName}: agent service {AgentServiceName} is {AgentState} ({AgentStartMode})",
+      "whyItMattersForScoping": "Maintenance and backup jobs defined in SQL Agent do not run while it is stopped; the target may silently inherit the same gap.",
+      "potentialProjectImpact": [
+        "Rollback Planning"
+      ],
+      "suggestedValidationQuestion": "Is SQL Agent intentionally stopped on {InstanceName}, and how are backups and maintenance scheduled instead?",
+      "sourceModule": "SQL",
+      "sourceDataset": "SqlInstances",
+      "riskCategory": "Backup readiness"
+    },
+    {
+      "id": "RULE-SQL-014",
+      "enabled": true,
+      "category": "Discovery Quality",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "SQL databases could not be enumerated",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SqlInstances",
+        "field": "ConnectionStatus",
+        "value": "Failed"
+      },
+      "emitPerRow": true,
+      "evidenceField": "InstanceName",
+      "evidenceTemplate": "{InstanceName}: {ConnectionError}",
+      "whyItMattersForScoping": "Without database names and sizes the data-migration effort and target storage are guesses.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Labor"
+      ],
+      "suggestedValidationQuestion": "Can a DBA provide the database list and sizes for {InstanceName}, or grant the discovery account VIEW SERVER STATE?",
+      "sourceModule": "SQL",
+      "sourceDataset": "SqlInstances",
+      "riskCategory": "Incomplete discovery"
+    },
+    {
+      "id": "RULE-SQL-015",
+      "enabled": true,
+      "category": "Service Account",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "SQL Server runs as a domain or managed service account",
+      "condition": {
+        "type": "anyRowFieldMatches",
+        "dataset": "SqlInstances",
+        "field": "ServiceAccountType",
+        "pattern": "^(DomainAccount|ManagedServiceAccount)$"
+      },
+      "emitPerRow": true,
+      "evidenceField": "InstanceName",
+      "evidenceTemplate": "{InstanceName} runs as {ServiceAccount} ({ServiceAccountType})",
+      "whyItMattersForScoping": "The account, its password owner, SPNs and file/share permissions must be reproduced on the target or the instance will not start or authenticate.",
+      "potentialProjectImpact": [
+        "Cutover Complexity",
+        "Client Coordination"
+      ],
+      "suggestedValidationQuestion": "Who owns the password for the account running {InstanceName}, and are its SPNs and permissions documented?",
+      "sourceModule": "SQL",
+      "sourceDataset": "SqlInstances",
+      "riskCategory": "Database migration"
+    },
+    {
+      "id": "RULE-SQL-016",
+      "enabled": true,
+      "category": "Database",
+      "severity": "Low",
+      "confidence": "Confirmed",
+      "title": "SQL Server runs as a built-in or virtual account",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SqlServerSummary",
+        "field": "AnyBuiltInServiceAccount",
+        "value": true
+      },
+      "whyItMattersForScoping": "Built-in and virtual accounts are machine-specific: any permission granted to them (shares, backup targets, linked servers) does not exist on a new server.",
+      "potentialProjectImpact": [
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Does any SQL instance here write backups or read files on another server using its machine account?",
+      "sourceModule": "SQL",
+      "sourceDataset": "SqlServerSummary",
+      "riskCategory": "Database migration"
+    },
+    {
+      "id": "RULE-SQL-017",
+      "enabled": true,
+      "category": "Storage",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "SQL database storage is large enough to drive target sizing",
+      "condition": {
+        "type": "anyRowFieldGreaterThan",
+        "dataset": "SqlServerSummary",
+        "field": "TotalDatabaseSizeGB",
+        "value": 100
+      },
+      "emitPerRow": true,
+      "evidenceField": "TotalDatabaseSizeGB",
+      "evidenceTemplate": "{TotalDatabaseSizeGB} GB across {SqlInstanceCount} instance(s)",
+      "whyItMattersForScoping": "Database volume drives copy windows, target disk layout and backup sizing.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Downtime"
+      ],
+      "suggestedValidationQuestion": "Is {TotalDatabaseSizeGB} GB of SQL data growing, and is a log-shipping or backup/restore cutover acceptable for the downtime window?",
+      "sourceModule": "SQL",
+      "sourceDataset": "SqlServerSummary",
+      "riskCategory": "Target capacity"
+    },
+    {
+      "id": "RULE-SQL-018",
+      "enabled": true,
+      "category": "Database",
+      "severity": "Low",
+      "confidence": "Confirmed",
+      "title": "SQL instance uses a dynamic TCP port",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SqlInstances",
+        "field": "UsesDynamicPort",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "InstanceName",
+      "evidenceTemplate": "{InstanceName}: dynamic port {TcpDynamicPorts}",
+      "whyItMattersForScoping": "Clients find a dynamic port through SQL Browser; firewall rules and connection strings that hardcode the port break after a move.",
+      "potentialProjectImpact": [
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Do clients reach {InstanceName} by instance name (via SQL Browser) or by a fixed port?",
+      "sourceModule": "SQL",
+      "sourceDataset": "SqlInstances",
+      "riskCategory": "Database migration"
+    },
+    {
+      "id": "RULE-SQL-019",
+      "enabled": true,
+      "category": "Database",
+      "severity": "Info",
+      "confidence": "Likely",
+      "title": "Application-specific SQL instance identified",
+      "condition": {
+        "type": "anyRowFieldMatches",
+        "dataset": "SqlInstances",
+        "field": "Classification",
+        "pattern": "(?i)Backup Exec|Sage|Veeam|Sophos|SolarWinds|vCenter|Express|Application-specific"
+      },
+      "emitPerRow": true,
+      "evidenceField": "InstanceName",
+      "confidenceField": "ClassificationConfidence",
+      "evidenceTemplate": "{InstanceName}: {Classification} ({ClassificationConfidence}; {ClassificationEvidence})",
+      "whyItMattersForScoping": "Application-bundled instances are migrated by the owning application's procedure, not as a general database move.",
+      "potentialProjectImpact": [
+        "Vendor Dependency"
+      ],
+      "suggestedValidationQuestion": "Which application owns {InstanceName}, and what is the vendor's migration procedure?",
+      "sourceModule": "SQL",
+      "sourceDataset": "SqlInstances",
+      "riskCategory": "Database migration"
+    },
+    {
+      "id": "RULE-ODBC-002",
+      "enabled": true,
+      "category": "Database",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "ODBC DSN exists in both 32-bit and 64-bit views",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "OdbcDsns",
+        "field": "DuplicateAcrossBitness",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "DsnName",
+      "evidenceTemplate": "DSN {DsnName} ({Bitness}-bit) -> {Server} {Database}",
+      "whyItMattersForScoping": "A 32-bit application only sees the 32-bit DSN and a 64-bit one only the 64-bit DSN; recreating just one on the target breaks the other application.",
+      "potentialProjectImpact": [
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Which applications use DSN {DsnName}, and are they 32-bit or 64-bit?",
+      "sourceModule": "SQL",
+      "sourceDataset": "OdbcDsns",
+      "riskCategory": "ODBC dependency"
+    },
+    {
+      "id": "RULE-ODBC-003",
+      "enabled": true,
+      "category": "Database",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "ODBC DSN points at a file path",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "OdbcDsns",
+        "field": "IsFileBased",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "DsnName",
+      "evidenceTemplate": "DSN {DsnName}: driver {Driver}, path {DbqOrPath}",
+      "whyItMattersForScoping": "File-based data sources (Access, Excel, dBase, Pervasive data directories) move with the files and break if the path changes.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Where will the data behind DSN {DsnName} live after the migration, and does the path change?",
+      "sourceModule": "SQL",
+      "sourceDataset": "OdbcDsns",
+      "riskCategory": "ODBC dependency"
+    },
+    {
+      "id": "RULE-ODBC-004",
+      "enabled": true,
+      "category": "Database",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "ODBC DSN points at this server by name",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "OdbcDsns",
+        "field": "PointsToLocalServer",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "DsnName",
+      "evidenceTemplate": "DSN {DsnName} -> {Server}",
+      "whyItMattersForScoping": "If the database moves to another server, every DSN that names this server must be updated on every machine that has it.",
+      "potentialProjectImpact": [
+        "Cutover Complexity",
+        "Client Coordination"
+      ],
+      "suggestedValidationQuestion": "How many workstations or RDS hosts carry DSN {DsnName}, and how will they be updated?",
+      "sourceModule": "SQL",
+      "sourceDataset": "OdbcDsns",
+      "riskCategory": "ODBC dependency"
+    },
+    {
+      "id": "RULE-ODBC-005",
+      "enabled": true,
+      "category": "Database",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "ODBC DSN references a driver that is not registered",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "OdbcDsns",
+        "field": "DriverInstalled",
+        "value": false
+      },
+      "emitPerRow": true,
+      "evidenceField": "DsnName",
+      "evidenceTemplate": "DSN {DsnName} ({Bitness}-bit) driver {Driver} not registered",
+      "whyItMattersForScoping": "The DSN cannot work as configured; either it is stale or the driver was removed, and the target needs the right driver either way.",
+      "potentialProjectImpact": [
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Is DSN {DsnName} still used, and which driver (and bitness) should the target have?",
+      "sourceModule": "SQL",
+      "sourceDataset": "OdbcDsns",
+      "riskCategory": "ODBC dependency"
+    },
+    {
+      "id": "RULE-ODBC-006",
+      "enabled": true,
+      "category": "Applications",
+      "severity": "Info",
+      "confidence": "Likely",
+      "title": "Application-specific ODBC DSN",
+      "condition": {
+        "type": "anyRowFieldMatches",
+        "dataset": "OdbcDsns",
+        "field": "ApplicationHint",
+        "pattern": "."
+      },
+      "emitPerRow": true,
+      "evidenceField": "DsnName",
+      "evidenceTemplate": "DSN {DsnName}: {ApplicationHint} ({Driver})",
+      "whyItMattersForScoping": "Line-of-business DSNs identify the application and the database engine a migration must carry.",
+      "potentialProjectImpact": [
+        "Vendor Dependency"
+      ],
+      "suggestedValidationQuestion": "Is the application behind DSN {DsnName} ({ApplicationHint}) in scope, and who supports it?",
+      "sourceModule": "SQL",
+      "sourceDataset": "OdbcDsns",
+      "riskCategory": "ODBC dependency"
+    },
+    {
+      "id": "RULE-IIS-004",
+      "enabled": true,
+      "category": "Web",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "IIS application pool runs as LocalSystem",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "IisAppPools",
+        "field": "IsElevatedIdentity",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "Application pool {Name} identity {IdentityType}",
+      "whyItMattersForScoping": "A web application running as LocalSystem has full control of the server; it also hides which permissions the application really needs on a new host.",
+      "potentialProjectImpact": [
+        "Security/Compliance",
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Why does application pool {Name} need LocalSystem, and can it run with a least-privilege identity on the target?",
+      "sourceModule": "IIS",
+      "sourceDataset": "IisAppPools",
+      "riskCategory": "IIS dependency"
+    },
+    {
+      "id": "RULE-IIS-005",
+      "enabled": true,
+      "category": "Web",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "IIS site physical path is missing",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "IisSites",
+        "field": "PathExists",
+        "value": false
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "Site {Name} -> {PhysicalPath}",
+      "whyItMattersForScoping": "A configured site whose content folder is gone is either dead configuration or depends on storage that was not present at collection time.",
+      "potentialProjectImpact": [
+        "Labor"
+      ],
+      "suggestedValidationQuestion": "Is site {Name} still needed, and where should its content come from?",
+      "sourceModule": "IIS",
+      "sourceDataset": "IisSites",
+      "riskCategory": "IIS dependency"
+    },
+    {
+      "id": "RULE-IIS-006",
+      "enabled": true,
+      "category": "Web",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "IIS site content is served from a UNC path",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "IisSites",
+        "field": "PathIsUnc",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "Site {Name} -> {PhysicalPath}",
+      "whyItMattersForScoping": "UNC-hosted content depends on another server and on the app pool identity's rights there.",
+      "potentialProjectImpact": [
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Which server hosts the content for site {Name}, and does it move too?",
+      "sourceModule": "IIS",
+      "sourceDataset": "IisSites",
+      "riskCategory": "IIS dependency"
+    },
+    {
+      "id": "RULE-IIS-007",
+      "enabled": true,
+      "category": "Web",
+      "severity": "Low",
+      "confidence": "Confirmed",
+      "title": "IIS site is configured but stopped",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "IisSites",
+        "field": "IsStopped",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "Site {Name} state {State}",
+      "whyItMattersForScoping": "Stopped sites are often dead configuration - or seasonal applications that someone expects to start later.",
+      "potentialProjectImpact": [
+        "Client Coordination"
+      ],
+      "suggestedValidationQuestion": "Is the stopped site {Name} still needed, or can it be left behind?",
+      "sourceModule": "IIS",
+      "sourceDataset": "IisSites",
+      "riskCategory": "IIS dependency"
+    },
+    {
+      "id": "RULE-IIS-008",
+      "enabled": true,
+      "category": "Web",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "HTTPS binding must be recreated with its certificate",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "IisBindings",
+        "field": "IsHttps",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "Site",
+      "evidenceTemplate": "{Site}: {Protocol} {BindingInformation} cert {CertificateHash}",
+      "whyItMattersForScoping": "HTTPS bindings need the certificate (with private key, exported by an administrator - never by this tool), host name and SNI settings reproduced on the target.",
+      "potentialProjectImpact": [
+        "Cutover Complexity",
+        "Downtime"
+      ],
+      "suggestedValidationQuestion": "Is the certificate for {Site} exportable or reissuable before cutover?",
+      "sourceModule": "IIS",
+      "sourceDataset": "IisBindings",
+      "riskCategory": "IIS dependency"
+    },
+    {
+      "id": "RULE-IIS-009",
+      "enabled": true,
+      "category": "Web",
+      "severity": "Low",
+      "confidence": "Confirmed",
+      "title": "IIS virtual directory points outside standard web roots",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "IisVirtualDirectories",
+        "field": "PathOutsideWebRoot",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "Path",
+      "evidenceTemplate": "Virtual directory {Path} -> {PhysicalPath}",
+      "whyItMattersForScoping": "Content outside inetpub is easy to miss in a copy and often doubles as a file share.",
+      "potentialProjectImpact": [
+        "Data Migration"
+      ],
+      "suggestedValidationQuestion": "Does the folder behind {Path} move with the site?",
+      "sourceModule": "IIS",
+      "sourceDataset": "IisVirtualDirectories",
+      "riskCategory": "IIS dependency"
+    },
+    {
+      "id": "RULE-EXCH-001",
+      "enabled": true,
+      "category": "Mail / SMTP",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "Exchange Server is installed",
+      "condition": {
+        "type": "datasetNotEmpty",
+        "dataset": "ExchangeServer"
+      },
+      "emitPerRow": true,
+      "evidenceField": "ServerName",
+      "evidenceTemplate": "{ProductName} {Version}; roles {ConfiguredRoles}",
+      "whyItMattersForScoping": "Exchange is removed by a supported uninstall after mailboxes, connectors, relay clients and hybrid configuration are dealt with - never by powering the server off.",
+      "potentialProjectImpact": [
+        "Architecture Decision",
+        "Cutover Complexity",
+        "Client Coordination"
+      ],
+      "suggestedValidationQuestion": "Is this Exchange server still hosting mailboxes, managing hybrid recipients or relaying mail, and what is the agreed decommission sequence?",
+      "suggestedScopeLanguage": "> {Brand} assumes Exchange will be removed by a supported uninstall only after mailbox, relay and hybrid dependencies are migrated and validated by the client.",
+      "sourceModule": "ExchangeSmtp",
+      "sourceDataset": "ExchangeServer",
+      "riskCategory": "Exchange decommissioning",
+      "projectTypeEmphasis": [
+        "Decommission",
+        "ServerRefresh"
+      ]
+    },
+    {
+      "id": "RULE-EXCH-002",
+      "enabled": true,
+      "category": "Mail / SMTP",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "Exchange version is out of support",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "ExchangeServer",
+        "field": "IsUnsupportedVersion",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "ServerName",
+      "evidenceTemplate": "{ProductName} {Version}; support ended {SupportEnd}",
+      "whyItMattersForScoping": "Out-of-support Exchange receives no security fixes and limits supported coexistence and migration paths.",
+      "potentialProjectImpact": [
+        "Security/Compliance",
+        "Architecture Decision"
+      ],
+      "suggestedValidationQuestion": "Is the plan to move to Exchange Online or to Exchange Server Subscription Edition, and on what timeline?",
+      "sourceModule": "ExchangeSmtp",
+      "sourceDataset": "ExchangeServer",
+      "riskCategory": "Unsupported software",
+      "projectTypeEmphasis": [
+        "Decommission",
+        "ServerRefresh"
+      ]
+    },
+    {
+      "id": "RULE-EXCH-003",
+      "enabled": true,
+      "category": "Mail / SMTP",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "Exchange hybrid configuration is present",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "ExchangeServer",
+        "field": "HybridConfigured",
+        "value": true
+      },
+      "whyItMattersForScoping": "Hybrid servers carry mail flow and recipient management for the tenant; removing the last one has a specific supported procedure.",
+      "potentialProjectImpact": [
+        "Architecture Decision",
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Is recipient management still done on-premises, and has the last-Exchange-server removal procedure been agreed?",
+      "sourceModule": "ExchangeSmtp",
+      "sourceDataset": "ExchangeServer",
+      "riskCategory": "Exchange decommissioning",
+      "projectTypeEmphasis": [
+        "Decommission",
+        "ServerRefresh"
+      ]
+    },
+    {
+      "id": "RULE-EXCH-004",
+      "enabled": true,
+      "category": "Mail / SMTP",
+      "severity": "Low",
+      "confidence": "Confirmed",
+      "title": "Exchange management tools remain installed",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "ExchangeServer",
+        "field": "ManagementToolsOnly",
+        "value": true
+      },
+      "whyItMattersForScoping": "Management-only installs are sometimes the last recipient-management path for a hybrid tenant.",
+      "potentialProjectImpact": [
+        "Client Coordination"
+      ],
+      "suggestedValidationQuestion": "Are the Exchange management tools on this server still used to manage recipients?",
+      "sourceModule": "ExchangeSmtp",
+      "sourceDataset": "ExchangeServer",
+      "riskCategory": "Exchange decommissioning"
+    },
+    {
+      "id": "RULE-EXCH-005",
+      "enabled": true,
+      "category": "Discovery Quality",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Exchange cmdlets were unavailable to discovery",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "ExchangeServer",
+        "field": "CmdletsAvailable",
+        "value": false
+      },
+      "whyItMattersForScoping": "Connector, certificate, queue and logging configuration were not read; SMTP evidence used default log paths only.",
+      "potentialProjectImpact": [
+        "Labor"
+      ],
+      "suggestedValidationQuestion": "Can discovery be re-run with an account that can load the Exchange Management Shell?",
+      "sourceModule": "ExchangeSmtp",
+      "sourceDataset": "ExchangeServer",
+      "riskCategory": "Incomplete discovery"
+    },
+    {
+      "id": "RULE-EXCH-006",
+      "enabled": true,
+      "category": "Mail / SMTP",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "Receive connector allows anonymous relay",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "ExchangeReceiveConnectors",
+        "field": "AnonymousRelay",
+        "value": "True"
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "Connector {Name}: bindings {Bindings}; remote ranges {RemoteIPRanges}; logging {ProtocolLoggingLevel}",
+      "whyItMattersForScoping": "Anonymous relay connectors exist for devices and applications; every address in their remote IP ranges is a potential relay client to move.",
+      "potentialProjectImpact": [
+        "Cutover Complexity",
+        "Security/Compliance"
+      ],
+      "suggestedValidationQuestion": "Which devices and applications are allowed to relay anonymously through this server, and who owns each one?",
+      "sourceModule": "ExchangeSmtp",
+      "sourceDataset": "ExchangeReceiveConnectors",
+      "riskCategory": "SMTP relay",
+      "projectTypeEmphasis": [
+        "Decommission",
+        "ServerRefresh"
+      ]
+    },
+    {
+      "id": "RULE-SMTP-001",
+      "enabled": true,
+      "category": "Mail / SMTP",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "Active SMTP relay client found in existing logs",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SmtpRelayClients",
+        "field": "Classification",
+        "value": "Confirmed active SMTP client"
+      },
+      "emitPerRow": true,
+      "evidenceField": "ClientIp",
+      "evidenceTemplate": "{ClientIp} ({ClientIdentity}) via {ConnectorIds}: {MessagesInTracking} tracked, {AcceptedInProtocolLog} accepted; {FirstSeen} - {LastSeen}",
+      "whyItMattersForScoping": "This sender delivered mail through this server during the evidence window; it will stop working when the server is retired unless it is moved to another SMTP path.",
+      "potentialProjectImpact": [
+        "Cutover Complexity",
+        "Client Coordination"
+      ],
+      "suggestedValidationQuestion": "What device or application is behind each confirmed relay client, and how will it send mail after the change?",
+      "sourceModule": "ExchangeSmtp",
+      "sourceDataset": "SmtpRelayClients",
+      "riskCategory": "SMTP relay",
+      "projectTypeEmphasis": [
+        "Decommission",
+        "ServerRefresh"
+      ]
+    },
+    {
+      "id": "RULE-SMTP-002",
+      "enabled": true,
+      "category": "Mail / SMTP",
+      "severity": "Medium",
+      "confidence": "Possible",
+      "title": "Possible SMTP client requires identification",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SmtpRelayClients",
+        "field": "Classification",
+        "value": "Possible SMTP client requiring validation"
+      },
+      "emitPerRow": true,
+      "evidenceField": "ClientIp",
+      "evidenceTemplate": "{ClientIp} ({ClientIdentity}) via {ConnectorIds}: {ProtocolSessions} session(s), {RejectedResponses} rejection(s)",
+      "whyItMattersForScoping": "The address connected over SMTP but no accepted message was seen; it may be a monitor, a misconfigured device or a sender whose messages were rejected.",
+      "potentialProjectImpact": [
+        "Client Coordination"
+      ],
+      "suggestedValidationQuestion": "What is at each address that connected over SMTP without delivering mail, and should it be sending mail?",
+      "sourceModule": "ExchangeSmtp",
+      "sourceDataset": "SmtpRelayClients",
+      "riskCategory": "SMTP relay"
+    },
+    {
+      "id": "RULE-SMTP-003",
+      "enabled": true,
+      "category": "Discovery Quality",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "SMTP usage cannot be determined from the available logs",
+      "condition": {
+        "type": "anyRowFieldMatches",
+        "dataset": "SmtpRelayAssessment",
+        "field": "Status",
+        "pattern": "^(Logs unavailable|Logs aged out|Permission failure|Protocol logging disabled on the relevant connector)$"
+      },
+      "emitPerRow": true,
+      "evidenceField": "Status",
+      "evidenceTemplate": "{Status}; conditions: {Conditions}; recommendation: {Recommendation}",
+      "whyItMattersForScoping": "Missing, disabled or aged-out logs mean relay clients are unknown - not absent. Decommissioning on that basis risks silent mail failures.",
+      "potentialProjectImpact": [
+        "Client Coordination",
+        "Rollback Planning"
+      ],
+      "suggestedValidationQuestion": "Can protocol logging be enabled by the client for an observation window that covers month-end before decommission decisions are made?",
+      "sourceModule": "ExchangeSmtp",
+      "sourceDataset": "SmtpRelayAssessment",
+      "riskCategory": "SMTP relay",
+      "projectTypeEmphasis": [
+        "Decommission",
+        "ServerRefresh"
+      ]
+    },
+    {
+      "id": "RULE-SMTP-004",
+      "enabled": true,
+      "category": "Mail / SMTP",
+      "severity": "Info",
+      "confidence": "Possible",
+      "title": "No SMTP usage found in the available logs (not proof of non-use)",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SmtpRelayAssessment",
+        "field": "Status",
+        "value": "No SMTP usage found in available logs"
+      },
+      "emitPerRow": true,
+      "evidenceField": "Status",
+      "evidenceTemplate": "{EvidenceCoverageDays} day(s) of evidence; {Recommendation}",
+      "whyItMattersForScoping": "Logs covered only the evidence window shown; infrequent senders (quarterly reports, alarms) may not appear.",
+      "potentialProjectImpact": [
+        "Client Coordination"
+      ],
+      "suggestedValidationQuestion": "Does the evidence window cover the business's monthly and quarterly cycles?",
+      "sourceModule": "ExchangeSmtp",
+      "sourceDataset": "SmtpRelayAssessment",
+      "riskCategory": "SMTP relay"
+    },
+    {
+      "id": "RULE-SMTP-005",
+      "enabled": true,
+      "category": "Mail / SMTP",
+      "severity": "Low",
+      "confidence": "Likely",
+      "title": "Server sends mail over SMTP",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SmtpConnections",
+        "field": "Direction",
+        "value": "Outbound from this server"
+      },
+      "emitPerRow": true,
+      "evidenceField": "RemoteAddress",
+      "evidenceTemplate": "{Process} -> {RemoteAddress}:{RemotePort}",
+      "whyItMattersForScoping": "Something on this server sends mail through a relay; if that relay is the one being retired, this server is a relay client.",
+      "potentialProjectImpact": [
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Which application on this server sends email, and will the mail relay it uses still exist after the change?",
+      "sourceModule": "ExchangeSmtp",
+      "sourceDataset": "SmtpConnections",
+      "riskCategory": "SMTP relay"
+    },
+    {
+      "id": "RULE-ENTRA-001",
+      "enabled": true,
+      "category": "Identity / AD / DC",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "Active (non-staging) Entra Connect sync server",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "EntraConnectDetail",
+        "field": "StagingModeEnabled",
+        "value": "False"
+      },
+      "emitPerRow": true,
+      "evidenceField": "Version",
+      "evidenceTemplate": "{ProductName} {Version}; service {SyncServiceState}; last run {LastRunProfile} {LastRunResult} {LastRunTime}",
+      "whyItMattersForScoping": "This server is the tenant's active directory sync engine. Relocating it means building a staging server, switching over, then retiring this one.",
+      "potentialProjectImpact": [
+        "Architecture Decision",
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Is there a staging-mode server, and when can sync be switched over?",
+      "sourceModule": "AzureHybrid",
+      "sourceDataset": "EntraConnectDetail",
+      "riskCategory": "Entra Connect relocation",
+      "projectTypeEmphasis": [
+        "Decommission",
+        "ServerRefresh",
+        "AzureMigration",
+        "AppMigration"
+      ]
+    },
+    {
+      "id": "RULE-ENTRA-002",
+      "enabled": true,
+      "category": "Discovery Quality",
+      "severity": "Medium",
+      "confidence": "Unknown",
+      "title": "Entra Connect staging mode could not be determined",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "EntraConnectDetail",
+        "field": "StagingModeEnabled",
+        "value": "Unknown"
+      },
+      "whyItMattersForScoping": "Whether this is the active sync server decides the whole relocation plan.",
+      "potentialProjectImpact": [
+        "Architecture Decision"
+      ],
+      "suggestedValidationQuestion": "Can an ADSyncAdmins member confirm staging mode on this server?",
+      "sourceModule": "AzureHybrid",
+      "sourceDataset": "EntraConnectDetail",
+      "riskCategory": "Incomplete discovery"
+    },
+    {
+      "id": "RULE-ENTRA-003",
+      "enabled": true,
+      "category": "Identity / AD / DC",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Entra Connect logged sync errors recently",
+      "condition": {
+        "type": "anyRowFieldGreaterThan",
+        "dataset": "EntraConnectDetail",
+        "field": "SyncErrorEventsInWindow",
+        "value": 0
+      },
+      "emitPerRow": true,
+      "evidenceField": "SyncErrorEventsInWindow",
+      "evidenceTemplate": "{SyncErrorEventsInWindow} error event(s) in {EventWindowDays} day(s)",
+      "whyItMattersForScoping": "Existing sync errors move with the configuration and should be cleared before a sync server migration.",
+      "potentialProjectImpact": [
+        "Labor"
+      ],
+      "suggestedValidationQuestion": "Are the current sync errors known, and who will resolve them before the move?",
+      "sourceModule": "AzureHybrid",
+      "sourceDataset": "EntraConnectDetail",
+      "riskCategory": "Entra Connect relocation"
+    },
+    {
+      "id": "RULE-ENTRA-004",
+      "enabled": true,
+      "category": "Identity / AD / DC",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "Pass-through Authentication agent present",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "EntraConnectDetail",
+        "field": "PassThroughAgentPresent",
+        "value": true
+      },
+      "whyItMattersForScoping": "Cloud sign-ins are validated against AD through PTA agents; losing the last agent stops users signing in to Microsoft 365.",
+      "potentialProjectImpact": [
+        "Architecture Decision",
+        "Downtime"
+      ],
+      "suggestedValidationQuestion": "How many PTA agents exist for the tenant, and on which servers?",
+      "sourceModule": "AzureHybrid",
+      "sourceDataset": "EntraConnectDetail",
+      "riskCategory": "Entra Connect relocation",
+      "projectTypeEmphasis": [
+        "Decommission",
+        "ServerRefresh",
+        "AzureMigration",
+        "AppMigration"
+      ]
+    },
+    {
+      "id": "RULE-STACK-001",
+      "enabled": true,
+      "category": "Applications",
+      "severity": "High",
+      "confidence": "Likely",
+      "title": "Line-of-business application engine hosted on this server",
+      "condition": {
+        "type": "anyRowFieldMatches",
+        "dataset": "AppStackSummary",
+        "field": "HostRole",
+        "pattern": "^Server"
+      },
+      "emitPerRow": true,
+      "evidenceField": "Stack",
+      "confidenceField": "Confidence",
+      "evidenceTemplate": "{Stack}: {HostRole}; server versions {ServerVersions}; evidence {EvidenceIds}",
+      "whyItMattersForScoping": "Client workstations and RDS hosts connect to this engine; it moves on the vendor's supported path with its data, licences and DSNs.",
+      "potentialProjectImpact": [
+        "Vendor Dependency",
+        "Cutover Complexity",
+        "Client Coordination"
+      ],
+      "suggestedValidationQuestion": "Has the {Stack} vendor confirmed the supported target version and migration procedure?",
+      "sourceModule": "ApplicationStacks",
+      "sourceDataset": "AppStackSummary",
+      "riskCategory": "Application compatibility",
+      "projectTypeEmphasis": [
+        "Decommission",
+        "ServerRefresh",
+        "AzureMigration",
+        "AppMigration"
+      ]
+    },
+    {
+      "id": "RULE-STACK-002",
+      "enabled": true,
+      "category": "Applications",
+      "severity": "Medium",
+      "confidence": "Likely",
+      "title": "Application server and client versions differ on this host",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "AppStackSummary",
+        "field": "LocalServerClientVersionsDiffer",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "Stack",
+      "evidenceTemplate": "{Stack}: server {ServerVersions}; clients {ClientVersions}",
+      "whyItMattersForScoping": "Version differences may be valid or may be a half-finished upgrade; only the vendor can say which.",
+      "potentialProjectImpact": [
+        "Vendor Dependency"
+      ],
+      "suggestedValidationQuestion": "Are {Stack} server {ServerVersions} and clients {ClientVersions} a supported combination?",
+      "sourceModule": "ApplicationStacks",
+      "sourceDataset": "AppStackSummary",
+      "riskCategory": "Application compatibility"
+    },
+    {
+      "id": "RULE-STACK-003",
+      "enabled": true,
+      "category": "Applications",
+      "severity": "Medium",
+      "confidence": "Likely",
+      "title": "RDS host carries application client components",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "AppStackSummary",
+        "field": "RdsHostWithClient",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "Stack",
+      "evidenceTemplate": "{Stack} client on RDS host: {ClientVersions}",
+      "whyItMattersForScoping": "Users run the client here; it has to be upgraded in step with the server engine and re-pointed if the engine moves.",
+      "potentialProjectImpact": [
+        "Vendor Dependency",
+        "Client Coordination"
+      ],
+      "suggestedValidationQuestion": "Which RDS hosts carry the {Stack} client, and are they upgraded together with the server?",
+      "sourceModule": "ApplicationStacks",
+      "sourceDataset": "AppStackSummary",
+      "riskCategory": "Application compatibility"
+    },
+    {
+      "id": "RULE-FS-004",
+      "enabled": true,
+      "category": "File / Print",
+      "severity": "Medium",
+      "confidence": "Possible",
+      "title": "Share looks like user profiles, home folders or redirected folders",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SmbShares",
+        "field": "IsProfileOrRedirectedShare",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "Share {Name} -> {Path}",
+      "whyItMattersForScoping": "Profile and redirected-folder data is tied to GPO paths, per-user permissions and offline-files caches; it migrates differently from departmental data.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Is share {Name} used for home drives, roaming profiles or folder redirection?",
+      "sourceModule": "FileShares",
+      "sourceDataset": "SmbShares",
+      "riskCategory": "File migration"
+    },
+    {
+      "id": "RULE-FS-005",
+      "enabled": true,
+      "category": "File / Print",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "User share stored on the system drive",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SmbShares",
+        "field": "UserShareOnSystemDrive",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "Share {Name} -> {Path}",
+      "whyItMattersForScoping": "Shared data on the OS volume competes with the OS for space and cannot be moved by swapping a data disk.",
+      "potentialProjectImpact": [
+        "Data Migration"
+      ],
+      "suggestedValidationQuestion": "Can the data in share {Name} move to a dedicated data volume on the target?",
+      "sourceModule": "FileShares",
+      "sourceDataset": "SmbShares",
+      "riskCategory": "File migration"
+    },
+    {
+      "id": "RULE-FS-006",
+      "enabled": true,
+      "category": "File / Print",
+      "severity": "Low",
+      "confidence": "Possible",
+      "title": "Share name or path suggests a prior or partial migration copy",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SmbShares",
+        "field": "PossiblePriorMigrationCopy",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "Share {Name} -> {Path}",
+      "whyItMattersForScoping": "Old/backup/copy shares are often duplicate data from an earlier move - candidates to exclude, or evidence of unfinished work.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Client Coordination"
+      ],
+      "suggestedValidationQuestion": "Is share {Name} a leftover copy that can be excluded from the migration?",
+      "sourceModule": "FileShares",
+      "sourceDataset": "SmbShares",
+      "riskCategory": "File migration"
+    },
+    {
+      "id": "RULE-FS-007",
+      "enabled": true,
+      "category": "File / Print",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Share was in use during collection",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "SmbShares",
+        "field": "InUseDuringCollection",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "Share {Name}: {OpenFileCount} open file(s) from {ActiveSessionCount} client(s)",
+      "whyItMattersForScoping": "Files were open on this share at collection time - it is live, and a cutover needs a freeze window and a final sync.",
+      "potentialProjectImpact": [
+        "Downtime",
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "When can share {Name} be frozen for final synchronisation?",
+      "sourceModule": "FileShares",
+      "sourceDataset": "SmbShares",
+      "riskCategory": "File migration"
+    },
+    {
+      "id": "RULE-FS-008",
+      "enabled": true,
+      "category": "File / Print",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Share root permissions are complex",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "ShareRootAcl",
+        "field": "PermissionComplexity",
+        "value": "High"
+      },
+      "emitPerRow": true,
+      "evidenceField": "Share",
+      "evidenceTemplate": "{Share}: {ExplicitAceCount} explicit entries, {UnresolvedSidCount} unresolved SID(s), inheritance disabled {InheritanceDisabled}",
+      "whyItMattersForScoping": "Many explicit entries or unresolved SIDs (deleted accounts) need clean-up decisions or careful preservation during the copy.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Labor"
+      ],
+      "suggestedValidationQuestion": "Should the permissions on {Share} be preserved as-is or cleaned up during migration?",
+      "sourceModule": "FileShares",
+      "sourceDataset": "ShareRootAcl",
+      "riskCategory": "File migration"
+    },
+    {
+      "id": "RULE-FS-009",
+      "enabled": true,
+      "category": "Discovery Quality",
+      "severity": "Low",
+      "confidence": "Confirmed",
+      "title": "Deep share scan was incomplete",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "NtfsAclSummary",
+        "field": "ScanStatus",
+        "value": "Incomplete"
+      },
+      "emitPerRow": true,
+      "evidenceField": "Share",
+      "evidenceTemplate": "{Share}: {IncompleteReason}",
+      "whyItMattersForScoping": "Size and age totals for this share are a lower bound.",
+      "potentialProjectImpact": [
+        "Labor"
+      ],
+      "suggestedValidationQuestion": "Can the share size for {Share} be confirmed from storage reporting?",
+      "sourceModule": "FileShares",
+      "sourceDataset": "NtfsAclSummary",
+      "riskCategory": "Incomplete discovery"
+    },
+    {
+      "id": "RULE-FS-010",
+      "enabled": true,
+      "category": "File / Print",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Share contains paths longer than 260 characters",
+      "condition": {
+        "type": "anyRowFieldGreaterThan",
+        "dataset": "NtfsAclSummary",
+        "field": "LongPathCount",
+        "value": 0
+      },
+      "emitPerRow": true,
+      "evidenceField": "Share",
+      "evidenceTemplate": "{Share}: {LongPathCount} long path(s)",
+      "whyItMattersForScoping": "Long paths break many copy tools and some applications; they need a tool and target that handle them.",
+      "potentialProjectImpact": [
+        "Data Migration"
+      ],
+      "suggestedValidationQuestion": "Does the migration tool chosen for {Share} handle long paths?",
+      "sourceModule": "FileShares",
+      "sourceDataset": "NtfsAclSummary",
+      "riskCategory": "File migration"
+    },
+    {
+      "id": "RULE-AFS-001",
+      "enabled": true,
+      "category": "File / Print",
+      "severity": "High",
+      "confidence": "Possible",
+      "title": "Azure File Sync indicators present",
+      "condition": {
+        "type": "datasetNotEmpty",
+        "dataset": "AzureFileSync"
+      },
+      "whyItMattersForScoping": "Tiered files exist only as stubs on the server; a file-level copy either recalls everything or breaks the stubs, and the server endpoint must be re-registered.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Architecture Decision"
+      ],
+      "suggestedValidationQuestion": "Which sync groups use this server, and is cloud tiering enabled?",
+      "sourceModule": "FileShares",
+      "sourceDataset": "AzureFileSync",
+      "riskCategory": "File migration",
+      "projectTypeEmphasis": [
+        "Decommission",
+        "ServerRefresh",
+        "AzureMigration",
+        "AppMigration"
+      ]
+    },
+    {
+      "id": "RULE-PRINT-003",
+      "enabled": true,
+      "category": "File / Print",
+      "severity": "Medium",
+      "confidence": "Possible",
+      "title": "Multifunction devices: scan-to-email or scan-to-folder must be verified",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "PrintServerSummary",
+        "field": "ScanWorkflowVerificationNeeded",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "MultifunctionLikelyCount",
+      "evidenceTemplate": "{MultifunctionLikelyCount} queue(s) look like multifunction devices; scan configuration not discoverable from the server",
+      "whyItMattersForScoping": "Scan destinations (SMTP relay, folders on this server) are configured on the devices themselves and are not visible from the server; they break silently when either changes.",
+      "potentialProjectImpact": [
+        "Client Coordination",
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Do any copiers scan to email through this environment's relay, or to a folder on this server?",
+      "sourceModule": "PrintServer",
+      "sourceDataset": "PrintServerSummary",
+      "riskCategory": "Printer migration"
+    },
+    {
+      "id": "RULE-PRINT-004",
+      "enabled": true,
+      "category": "File / Print",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Legacy (Type 2 / kernel-mode) printer driver in use",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "Printers",
+        "field": "IsLegacyDriver",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "{Name}: driver {DriverName}",
+      "whyItMattersForScoping": "Kernel-mode drivers are not supported on current Windows Server releases; the queue needs a replacement driver.",
+      "potentialProjectImpact": [
+        "Labor",
+        "Vendor Dependency"
+      ],
+      "suggestedValidationQuestion": "Is a current driver available for printer {Name}?",
+      "sourceModule": "PrintServer",
+      "sourceDataset": "Printers",
+      "riskCategory": "Printer migration"
+    },
+    {
+      "id": "RULE-PRINT-005",
+      "enabled": true,
+      "category": "Discovery Quality",
+      "severity": "Low",
+      "confidence": "Confirmed",
+      "title": "Print usage unknown: PrintService log disabled",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "PrintServerSummary",
+        "field": "PrintLogStatus",
+        "value": "Disabled"
+      },
+      "whyItMattersForScoping": "Without usage evidence every queue must be treated as in use.",
+      "potentialProjectImpact": [
+        "Labor"
+      ],
+      "suggestedValidationQuestion": "Which printers are still used?",
+      "sourceModule": "PrintServer",
+      "sourceDataset": "PrintServerSummary",
+      "riskCategory": "Incomplete discovery"
+    },
+    {
+      "id": "RULE-PRINT-006",
+      "enabled": true,
+      "category": "File / Print",
+      "severity": "Medium",
+      "confidence": "Likely",
+      "title": "Print management agent present",
+      "condition": {
+        "type": "anyRowFieldMatches",
+        "dataset": "PrintServerSummary",
+        "field": "PrintManagementAgents",
+        "pattern": "."
+      },
+      "emitPerRow": true,
+      "evidenceField": "PrintManagementAgents",
+      "evidenceTemplate": "{PrintManagementAgents}",
+      "whyItMattersForScoping": "Print management platforms (PrinterLogic/PrinterCloud, PaperCut, Universal Print) deploy queues and drivers outside the server and must be re-pointed.",
+      "potentialProjectImpact": [
+        "Vendor Dependency",
+        "Client Coordination"
+      ],
+      "suggestedValidationQuestion": "Which printers are delivered by {PrintManagementAgents}, and who administers it?",
+      "sourceModule": "PrintServer",
+      "sourceDataset": "PrintServerSummary",
+      "riskCategory": "Printer migration"
+    },
+    {
+      "id": "RULE-PRINT-007",
+      "enabled": true,
+      "category": "File / Print",
+      "severity": "Medium",
+      "confidence": "Likely",
+      "title": "RDS host with printers (session printing)",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "PrintServerSummary",
+        "field": "HostsRdsSessions",
+        "value": true
+      },
+      "whyItMattersForScoping": "RDS printing combines redirected client printers and server queues; driver isolation and per-session mapping need testing on the target.",
+      "potentialProjectImpact": [
+        "Client Coordination",
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "How do RDS users print today - redirected local printers, server queues, or a print management tool?",
+      "sourceModule": "PrintServer",
+      "sourceDataset": "PrintServerSummary",
+      "riskCategory": "Printer migration"
+    },
+    {
+      "id": "RULE-AD-001",
+      "enabled": true,
+      "category": "Identity / AD / DC",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "Only domain controller in the domain",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "DomainContext",
+        "field": "IsOnlyDomainController",
+        "value": true
+      },
+      "whyItMattersForScoping": "There is no second DC to fail over to; any outage of this server is a full directory outage, and a new DC must be promoted and replicated before this one is touched.",
+      "potentialProjectImpact": [
+        "Architecture Decision",
+        "Downtime",
+        "Rollback Planning"
+      ],
+      "suggestedValidationQuestion": "Can a second domain controller be added before any change to this server?",
+      "suggestedScopeLanguage": "> {Brand} assumes an additional domain controller will be promoted and verified healthy before any change to the existing domain controller.",
+      "sourceModule": "ActiveDirectory",
+      "sourceDataset": "DomainContext",
+      "riskCategory": "AD role migration",
+      "projectTypeEmphasis": [
+        "Decommission",
+        "ServerRefresh",
+        "AzureMigration",
+        "AppMigration"
+      ]
+    },
+    {
+      "id": "RULE-AD-002",
+      "enabled": true,
+      "category": "Identity / AD / DC",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "Server holds all FSMO roles",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "DomainContext",
+        "field": "HoldsAllFsmoRoles",
+        "value": true
+      },
+      "whyItMattersForScoping": "All five operations-master roles must be transferred (not seized) to a healthy DC before this server is demoted.",
+      "potentialProjectImpact": [
+        "Cutover Complexity",
+        "Rollback Planning"
+      ],
+      "suggestedValidationQuestion": "Which DC will receive the FSMO roles, and when?",
+      "sourceModule": "ActiveDirectory",
+      "sourceDataset": "DomainContext",
+      "riskCategory": "AD role migration",
+      "projectTypeEmphasis": [
+        "Decommission",
+        "ServerRefresh"
+      ]
+    },
+    {
+      "id": "RULE-AD-003",
+      "enabled": true,
+      "category": "Identity / AD / DC",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "Domain controller on an unsupported operating system",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "AdDomainControllers",
+        "field": "IsUnsupportedOs",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "Name",
+      "evidenceTemplate": "DC {Name}: {OperatingSystem} (site {Site})",
+      "whyItMattersForScoping": "Unsupported DCs constrain the functional level, block newer DCs joining in some combinations, and receive no security fixes.",
+      "potentialProjectImpact": [
+        "Security/Compliance",
+        "Architecture Decision"
+      ],
+      "suggestedValidationQuestion": "What is the plan for DC {Name}?",
+      "sourceModule": "ActiveDirectory",
+      "sourceDataset": "AdDomainControllers",
+      "riskCategory": "AD role migration",
+      "projectTypeEmphasis": [
+        "Decommission",
+        "ServerRefresh",
+        "AzureMigration",
+        "AppMigration"
+      ]
+    },
+    {
+      "id": "RULE-AD-004",
+      "enabled": true,
+      "category": "Identity / AD / DC",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "Active Directory replication failures",
+      "condition": {
+        "type": "anyRowFieldGreaterThan",
+        "dataset": "DomainContext",
+        "field": "ReplicationFailures",
+        "value": 0
+      },
+      "emitPerRow": true,
+      "evidenceField": "ReplicationFailures",
+      "evidenceTemplate": "{ReplicationFailures} failure(s) in repadmin /replsummary",
+      "whyItMattersForScoping": "Promoting, demoting or transferring roles on top of broken replication causes divergence and lingering objects.",
+      "potentialProjectImpact": [
+        "Labor",
+        "Rollback Planning"
+      ],
+      "suggestedValidationQuestion": "Can replication be repaired before any DC change is scheduled?",
+      "sourceModule": "ActiveDirectory",
+      "sourceDataset": "DomainContext",
+      "riskCategory": "AD role migration"
+    },
+    {
+      "id": "RULE-AD-005",
+      "enabled": true,
+      "category": "Identity / AD / DC",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "SYSVOL still replicates with FRS",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "DomainContext",
+        "field": "SysvolOnFrs",
+        "value": true
+      },
+      "whyItMattersForScoping": "FRS must be migrated to DFSR before Windows Server 2019 or later DCs can be added.",
+      "potentialProjectImpact": [
+        "Architecture Decision",
+        "Labor"
+      ],
+      "suggestedValidationQuestion": "Can SYSVOL be migrated to DFSR before new DCs are introduced?",
+      "sourceModule": "ActiveDirectory",
+      "sourceDataset": "DomainContext",
+      "riskCategory": "AD role migration",
+      "projectTypeEmphasis": [
+        "Decommission",
+        "ServerRefresh",
+        "AzureMigration",
+        "AppMigration"
+      ]
+    },
+    {
+      "id": "RULE-AD-006",
+      "enabled": true,
+      "category": "Identity / AD / DC",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "dcdiag reported a failed test",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "AdHealthChecks",
+        "field": "Result",
+        "value": "Failed"
+      },
+      "emitPerRow": true,
+      "evidenceField": "Check",
+      "evidenceTemplate": "{Detail}",
+      "whyItMattersForScoping": "Existing DC health failures should be fixed before roles move.",
+      "potentialProjectImpact": [
+        "Labor"
+      ],
+      "suggestedValidationQuestion": "Is the dcdiag failure ({Check}) known, and who will fix it?",
+      "sourceModule": "ActiveDirectory",
+      "sourceDataset": "AdHealthChecks",
+      "riskCategory": "AD role migration"
+    },
+    {
+      "id": "RULE-DHCP-002",
+      "enabled": true,
+      "category": "Identity / AD / DC",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "Server hosts active DHCP scopes",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "DhcpServerSummary",
+        "field": "HostsActiveDhcp",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "ActiveScopeCount",
+      "evidenceTemplate": "{ActiveScopeCount} active scope(s), {ReservationCount} reservation(s), failover {HasFailover}",
+      "whyItMattersForScoping": "Active scopes, reservations and options must move (and the new server be authorized) before this one stops answering, or clients lose addresses as leases expire.",
+      "potentialProjectImpact": [
+        "Cutover Complexity",
+        "Downtime"
+      ],
+      "suggestedValidationQuestion": "Where will DHCP live after the change, and is a failover partner planned?",
+      "sourceModule": "DHCP",
+      "sourceDataset": "DhcpServerSummary",
+      "riskCategory": "DHCP cutover",
+      "projectTypeEmphasis": [
+        "Decommission",
+        "ServerRefresh"
+      ]
+    },
+    {
+      "id": "RULE-DHCP-003",
+      "enabled": true,
+      "category": "Identity / AD / DC",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "DHCP failover relationship configured",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "DhcpServerSummary",
+        "field": "HasFailover",
+        "value": true
+      },
+      "whyItMattersForScoping": "The relationship must be removed and recreated with the replacement partner in the right order.",
+      "potentialProjectImpact": [
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Which partner server shares these scopes, and is it staying?",
+      "sourceModule": "DHCP",
+      "sourceDataset": "DhcpServerSummary",
+      "riskCategory": "DHCP cutover"
+    },
+    {
+      "id": "RULE-DNS-003",
+      "enabled": true,
+      "category": "Identity / AD / DC",
+      "severity": "Low",
+      "confidence": "Confirmed",
+      "title": "Conditional forwarder configured",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "DnsZones",
+        "field": "IsConditionalForwarder",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "ZoneName",
+      "evidenceTemplate": "{ZoneName} -> {MasterServers}",
+      "whyItMattersForScoping": "Conditional forwarders point at partner or cloud DNS; they must exist on whichever server takes over DNS.",
+      "potentialProjectImpact": [
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Is the conditional forwarder for {ZoneName} still needed, and are its targets reachable from the new DNS servers?",
+      "sourceModule": "DNS",
+      "sourceDataset": "DnsZones",
+      "riskCategory": "DNS cutover"
+    },
+    {
+      "id": "RULE-DNS-004",
+      "enabled": true,
+      "category": "Identity / AD / DC",
+      "severity": "Low",
+      "confidence": "Confirmed",
+      "title": "DNS zone does not accept dynamic updates",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "DnsZones",
+        "field": "RequiresStaticUpdates",
+        "value": true
+      },
+      "emitPerRow": true,
+      "evidenceField": "ZoneName",
+      "evidenceTemplate": "Zone {ZoneName} ({ZoneType}) dynamic update {DynamicUpdate}",
+      "whyItMattersForScoping": "Records in static zones are changed by hand; every record referencing a retiring server must be edited manually.",
+      "potentialProjectImpact": [
+        "Labor",
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Who maintains records in {ZoneName}?",
+      "sourceModule": "DNS",
+      "sourceDataset": "DnsZones",
+      "riskCategory": "DNS cutover"
+    },
+    {
+      "id": "RULE-HV-008",
+      "enabled": true,
+      "category": "Hyper-V / Cluster",
+      "severity": "Medium",
+      "confidence": "Likely",
+      "title": "Unattached virtual disks or ISOs in VM folders",
+      "condition": {
+        "type": "datasetNotEmpty",
+        "dataset": "HyperVUnattachedFiles"
+      },
+      "whyItMattersForScoping": "Leftover disks are either data from deleted VMs or disks of VMs registered elsewhere; both need a decision before the host is retired.",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Client Coordination"
+      ],
+      "suggestedValidationQuestion": "Can the owners of the unattached disks confirm they are no longer needed?",
+      "sourceModule": "HyperV",
+      "sourceDataset": "HyperVUnattachedFiles",
+      "riskCategory": "Hypervisor decommissioning",
+      "projectTypeEmphasis": [
+        "Decommission"
+      ]
+    },
+    {
+      "id": "RULE-HV-009",
+      "enabled": true,
+      "category": "Hyper-V / Cluster",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "VM counts differ between inventory sources",
+      "condition": {
+        "type": "anyRowFieldGreaterThan",
+        "dataset": "HypervisorInventorySummary",
+        "field": "CountConflicts",
+        "value": 0
+      },
+      "emitPerRow": true,
+      "evidenceField": "SourceFile",
+      "evidenceTemplate": "{CountConflictDetail}",
+      "whyItMattersForScoping": "When RMM and the hypervisor disagree, either something is unmanaged or something is stale - both change the scope.",
+      "potentialProjectImpact": [
+        "Labor",
+        "Client Coordination"
+      ],
+      "suggestedValidationQuestion": "Which virtual machines explain the difference between the RMM and hypervisor inventories?",
+      "sourceModule": "HypervisorInventory",
+      "sourceDataset": "HypervisorInventorySummary",
+      "riskCategory": "Hypervisor decommissioning"
+    },
+    {
+      "id": "RULE-HV-010",
+      "enabled": true,
+      "category": "Hyper-V / Cluster",
+      "severity": "High",
+      "confidence": "Confirmed",
+      "title": "Imported hypervisor inventory: running VMs remain",
+      "condition": {
+        "type": "anyRowFieldGreaterThan",
+        "dataset": "HypervisorInventorySummary",
+        "field": "RunningVMs",
+        "value": 0
+      },
+      "emitPerRow": true,
+      "evidenceField": "SourceFile",
+      "evidenceTemplate": "{RunningVMs} running, {PoweredOffVMs} powered off on {Hosts}",
+      "whyItMattersForScoping": "A host cannot be decommissioned while it still runs workloads.",
+      "potentialProjectImpact": [
+        "Architecture Decision",
+        "Downtime"
+      ],
+      "suggestedValidationQuestion": "Where will each of the {RunningVMs} running VM(s) go?",
+      "sourceModule": "HypervisorInventory",
+      "sourceDataset": "HypervisorInventorySummary",
+      "riskCategory": "Hypervisor decommissioning",
+      "projectTypeEmphasis": [
+        "Decommission"
+      ]
+    },
+    {
+      "id": "RULE-HV-011",
+      "enabled": true,
+      "category": "Hyper-V / Cluster",
+      "severity": "Medium",
+      "confidence": "Confirmed",
+      "title": "Imported hypervisor inventory: powered-off VMs require disposition",
+      "condition": {
+        "type": "anyRowFieldGreaterThan",
+        "dataset": "HypervisorInventorySummary",
+        "field": "PoweredOffVMs",
+        "value": 0
+      },
+      "whyItMattersForScoping": "Powered-off VMs are often forgotten data; each needs a keep, archive or delete decision.",
+      "potentialProjectImpact": [
+        "Client Coordination",
+        "Data Migration"
+      ],
+      "suggestedValidationQuestion": "What should happen to each of the {PoweredOffVMs} powered-off VM(s)?",
+      "sourceModule": "HypervisorInventory",
+      "sourceDataset": "HypervisorInventorySummary",
+      "riskCategory": "Hypervisor decommissioning",
+      "projectTypeEmphasis": [
+        "Decommission"
+      ]
+    },
+    {
+      "id": "RULE-CAP-001",
+      "enabled": true,
+      "category": "Storage",
+      "severity": "Low",
+      "confidence": "Confirmed",
+      "title": "Share data volume was not measured",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "WorkloadProfile",
+        "field": "ShareSizeUnknown",
+        "value": true
+      },
+      "whyItMattersForScoping": "Target storage cannot be validated for file data that was not measured (Fast mode does not crawl shares).",
+      "potentialProjectImpact": [
+        "Data Migration",
+        "Labor"
+      ],
+      "suggestedValidationQuestion": "Can storage reporting or a Deep run provide the share data volume?",
+      "sourceModule": "WorkloadProfile",
+      "sourceDataset": "WorkloadProfile",
+      "riskCategory": "Target capacity"
+    },
+    {
+      "id": "RULE-EVT-001",
+      "enabled": true,
+      "category": "Services / Tasks",
+      "severity": "Low",
+      "confidence": "Likely",
+      "title": "Recent errors from a workload this migration touches",
+      "condition": {
+        "type": "anyRowFieldGreaterThan",
+        "dataset": "EventLogDependencyAreas",
+        "field": "ErrorCount",
+        "value": 0
+      },
+      "emitPerRow": true,
+      "evidenceField": "ProviderName",
+      "evidenceTemplate": "{Area}: {ProviderName} logged {ErrorCount} error(s) in {DaysWindow} day(s) ({LogName}), last {LastSeen}",
+      "whyItMattersForScoping": "Existing errors in a component being migrated should be understood first, or they will be blamed on the migration.",
+      "potentialProjectImpact": [
+        "Labor"
+      ],
+      "suggestedValidationQuestion": "Are the {Area} errors from {ProviderName} known issues?",
+      "sourceModule": "EventLogs",
+      "sourceDataset": "EventLogDependencyAreas",
+      "riskCategory": "Application compatibility"
     }
   ]
 }

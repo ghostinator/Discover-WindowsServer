@@ -23,6 +23,12 @@
 .EXAMPLE
     .\Discover-WindowsServer.ps1 -Mode Fast -ComplianceLens CMMC
 .EXAMPLE
+    .\Discover-WindowsServer.ps1 -Mode Deep -ProjectType Decommission -AttemptSqlIntegratedAuth -ExchangeLogDays 30
+    Migration/decommission scoping: SQL database inventory over local integrated auth, and 30 days
+    of existing Exchange/SMTP logs summarised into SMTP relay clients. No logging is enabled.
+.EXAMPLE
+    .\Discover-WindowsServer.ps1 -Mode Custom -IncludeModules ExchangeSmtp,ApplicationStacks,WorkloadProfile
+.EXAMPLE
     .\Discover-WindowsServer.ps1 -Mode Deep -WhatIf
     Prints which modules would run and writes discovery-plan.md, then exits without
     collecting anything - useful to show a client exactly what will be touched first.
@@ -51,6 +57,18 @@ param(
     [switch]$IncludeRecycleBin,
     [switch]$IncludeWindowsFolder,
     [switch]$AttemptSqlIntegratedAuth,
+    # Exchange message-tracking / SMTP protocol-log lookback. Existing logs are READ only;
+    # nothing ever enables or changes Exchange logging.
+    [int]$ExchangeLogDays = 7,
+    # PRIVACY-SENSITIVE, opt-in: copies raw Exchange message-tracking and SMTP protocol logs
+    # (email addresses, message metadata) into evidence\raw\exchange-logs.
+    [switch]$CopyExchangeRawLogs,
+    # PRIVACY-SENSITIVE, opt-in: keep full sample sender/recipient addresses and SMB session user
+    # names. Without it they are reduced to domain-only / counts.
+    [switch]$IncludeSensitiveEvidence,
+    # Optional externally supplied hypervisor inventory (CSV or JSON, e.g. a VMware export or an
+    # RMM VM list) - see docs\OUTPUT-GUIDE.md for the schema. Read-only; no hypervisor credentials.
+    [string]$HypervisorInventoryPath,
     [switch]$SkipZip,
     [switch]$GenerateEvidenceManifest,
     [ValidateSet('None','CMMC','GeneralSecurity')]
@@ -125,6 +143,7 @@ $effLargeFileThresholdGB  = [int](Resolve-EffValue -IsBound $PSBoundParameters.C
 $effOldFileYears          = [int](Resolve-EffValue -IsBound $PSBoundParameters.ContainsKey('OldFileYears')            -UserValue $OldFileYears            -ConfigKey 'oldFileYears'            -ModeConfig $modeCfg -GlobalDefaults $globalDefaults -Default 7)
 $effEventLogDays          = [int](Resolve-EffValue -IsBound $PSBoundParameters.ContainsKey('EventLogDays')            -UserValue $EventLogDays            -ConfigKey 'eventLogDays'            -ModeConfig $modeCfg -GlobalDefaults $globalDefaults -Default 14)
 $effMaxEventSamples       = [int](Resolve-EffValue -IsBound $PSBoundParameters.ContainsKey('MaxEventSamplesPerLog')   -UserValue $MaxEventSamplesPerLog   -ConfigKey 'maxEventSamplesPerLog'   -ModeConfig $modeCfg -GlobalDefaults $globalDefaults -Default 50)
+$effExchangeLogDays       = [int](Resolve-EffValue -IsBound $PSBoundParameters.ContainsKey('ExchangeLogDays')         -UserValue $ExchangeLogDays         -ConfigKey 'exchangeLogDays'         -ModeConfig $modeCfg -GlobalDefaults $globalDefaults -Default 7)
 $effConfigScanMaxFileMB   = [int](Resolve-EffValue -IsBound $PSBoundParameters.ContainsKey('ConfigScanMaxFileSizeMB') -UserValue $ConfigScanMaxFileSizeMB -ConfigKey 'configScanMaxFileSizeMB' -ModeConfig $modeCfg -GlobalDefaults $globalDefaults -Default 10)
 $effOutputRoot            = [string](Resolve-EffValue -IsBound $PSBoundParameters.ContainsKey('OutputRoot')           -UserValue $OutputRoot              -ConfigKey 'outputRoot'              -ModeConfig $modeCfg -GlobalDefaults $globalDefaults -Default 'C:\Temp')
 if ([string]::IsNullOrWhiteSpace($effOutputRoot)) { $effOutputRoot = 'C:\Temp' }
@@ -206,6 +225,10 @@ $parameters = @{
     IncludeRecycleBin           = $effIncludeRecycleBin
     IncludeWindowsFolder        = $effIncludeWindowsFolder
     AttemptSqlIntegratedAuth    = $effAttemptSqlAuth
+    ExchangeLogDays             = $effExchangeLogDays
+    CopyExchangeRawLogs         = $CopyExchangeRawLogs.IsPresent
+    IncludeSensitiveEvidence    = $IncludeSensitiveEvidence.IsPresent
+    HypervisorInventoryPath     = $HypervisorInventoryPath
     SkipZip                     = $SkipZip.IsPresent
     GenerateEvidenceManifest    = $GenerateEvidenceManifest.IsPresent
     ComplianceLens              = $ComplianceLens

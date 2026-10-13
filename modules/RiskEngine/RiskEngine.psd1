@@ -9,7 +9,7 @@
     FunctionsToExport = @(
         'Get-DiscoveryModuleMetadata','Test-DiscoveryPrerequisites','Invoke-DiscoveryRiskAnalysis',
         'Invoke-DiscoverySynthesis','Test-RuleCondition','Expand-RuleTokens','Get-ComplianceRelevanceForFinding',
-        'Test-RuleEmphasizedForProjectType','Get-WbsAreasForCategory',
+        'Test-RuleEmphasizedForProjectType','Get-WbsAreasForCategory','Get-RiskCategoryForRule',
         'Build-MigrationComplexity','Build-WbsInputs','Build-DependencyGraph','Build-ReadinessScore'
     )
     CmdletsToExport   = @()

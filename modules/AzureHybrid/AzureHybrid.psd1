@@ -6,7 +6,7 @@
     CompanyName       = 'Brandon Cook'
     Description       = 'AzureHybrid collector module (Entra Connect, AD FS, connectors, cloud join state) for the Windows Server Discovery Toolkit.'
     PowerShellVersion = '5.1'
-    FunctionsToExport = @('ConvertTo-DiscoveryDatasets','Get-DiscoveryFollowUpQuestions','Get-DiscoveryModuleMetadata','Invoke-DiscoveryCollection','Test-AhEvidence','Test-DiscoveryPrerequisites')
+    FunctionsToExport = @('ConvertTo-DiscoveryDatasets','Get-DiscoveryFollowUpQuestions','Get-DiscoveryModuleMetadata','Get-EntraConnectDetail','Invoke-DiscoveryCollection','Test-AhEvidence','Test-DiscoveryPrerequisites')
     CmdletsToExport   = @()
     VariablesToExport = @()
     AliasesToExport   = @()

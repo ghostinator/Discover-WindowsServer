@@ -135,3 +135,57 @@ APPPOOL "LegacyPool" (MgdVersion:v2.0,MgdMode:Classic,state:Stopped)
         ($ctx.Limitations | Where-Object { $_.Message -match 'No IIS management tooling available' }) | Should -Not -BeNullOrEmpty
     }
 }
+
+Describe 'Test-DiscoveryPrerequisites - IIS absent' {
+    It 'reports NotApplicable (a clean skip, not a failure) when IIS is not installed' {
+        Mock -CommandName Get-Service -ModuleName IIS -MockWith { $null }
+        Mock -CommandName Test-Path -ModuleName IIS -MockWith { $false }
+        Mock -CommandName Get-ModuleAvailable -ModuleName IIS -MockWith { $false }
+        $p = Test-DiscoveryPrerequisites -Context (New-IisTestContext)
+        $p.CanRun | Should -BeFalse
+        $p.Status | Should -Be 'NotApplicable'
+    }
+}
+
+Describe 'Invoke-DiscoveryCollection - site, application and virtual-directory mapping (appcmd)' {
+    It 'maps each site to its root physical path and pool, and each application to its own path' {
+        $ctx = New-IisTestContext
+        Set-IisAppcmdFallbackMocks
+        $script:IisOut = @{
+            site  = 'SITE "Intranet" (id:2,bindings:http/10.0.0.5:80:intranet.example.test,https/*:443:intranet.example.test,state:Stopped)'
+            app   = "APP ""Intranet/"" (applicationPool:IntranetPool)`r`nAPP ""Intranet/api"" (applicationPool:ApiPool)"
+            vdir  = "VDIR ""Intranet/"" (physicalPath:%SystemDrive%\inetpub\intranet)`r`nVDIR ""Intranet/api/"" (physicalPath:\\fs01\apps\api)"
+        }
+        Mock -CommandName Invoke-CommandLineSafe -ModuleName IIS -MockWith {
+            $verb = @($Arguments)[1]
+            $text = if ($script:IisOut.ContainsKey($verb)) { $script:IisOut[$verb] } else { '' }
+            [pscustomobject]@{ Succeeded = $true; StdOut = $text; StdErr = ''; ExitCode = 0; TimedOut = $false }
+        }
+        $raw = Invoke-DiscoveryCollection -Context $ctx
+        $site = $raw.IisSites | Where-Object Name -eq 'Intranet'
+        $site.PhysicalPath | Should -Be '%SystemDrive%\inetpub\intranet'
+        $site.ApplicationPool | Should -Be 'IntranetPool'
+        $site.IsStopped | Should -BeTrue
+        $api = $raw.IisApplications | Where-Object Path -eq '/api'
+        $api.AppPool | Should -Be 'ApiPool'
+        $api.PhysicalPath | Should -Be '\\fs01\apps\api'
+        $api.PathIsUnc | Should -BeTrue
+        $https = $raw.IisBindings | Where-Object Protocol -eq 'https'
+        $https.Port | Should -Be '443'
+        $https.HostHeader | Should -Be 'intranet.example.test'
+        ($raw.IisBindings | Where-Object Protocol -eq 'http').IsSpecificIp | Should -BeTrue
+    }
+}
+
+Describe 'ConvertFrom-IisBindingInformation / Get-IisPathAssessment' {
+    It 'splits IPv4, wildcard and bracketed IPv6 binding strings' {
+        (ConvertFrom-IisBindingInformation -BindingInformation '*:8080:app.example.test').Port | Should -Be '8080'
+        (ConvertFrom-IisBindingInformation -BindingInformation '[::1]:443:').IPAddress | Should -Be '[::1]'
+        (ConvertFrom-IisBindingInformation -BindingInformation '808:*').Port | Should -Be '808'
+    }
+    It 'flags paths outside standard web roots and UNC paths' {
+        (Get-IisPathAssessment -Path 'D:\Apps\Portal').PathOutsideWebRoot | Should -BeTrue
+        (Get-IisPathAssessment -Path '%SystemDrive%\inetpub\wwwroot').PathOutsideWebRoot | Should -BeFalse
+        (Get-IisPathAssessment -Path '\\fs01\web').PathIsUnc | Should -BeTrue
+    }
+}

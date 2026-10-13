@@ -80,6 +80,15 @@ Add-DataSet -Context $ctx -Name 'HyperVVMs'        -Rows @([pscustomobject]@{ Na
 Add-DataSet -Context $ctx -Name 'PerformanceSnapshot' -Rows @([pscustomobject]@{ CpuPercent=93 }) -SourceModule 'PerformanceSnapshot' | Out-Null
 Add-DataSet -Context $ctx -Name 'VendorAgents'     -Rows @([pscustomobject]@{ AgentName='Datto RMM'; Category='RMM' }) -Visibility 'Both' -SourceModule 'VendorAgents' | Out-Null
 Add-DataSet -Context $ctx -Name 'Licensing'        -Rows @([pscustomobject]@{ Indicator='RDS per-device CALs'; Evidence='registry' }) -Visibility 'Both' -SourceModule 'Licensing' | Out-Null
+# Migration-scoping datasets (ExchangeSmtp, ApplicationStacks, WorkloadProfile, extended SQL/IIS/AD/DHCP/print).
+Add-DataSet -Context $ctx -Name 'SqlServerSummary' -Rows @([pscustomobject]@{ SqlInstanceCount=2; ProductVersions='SQL Server 2014, SQL Server 2019'; MultipleSqlVersions=$true; MultipleApplicationInstances=$true; TotalDatabaseSizeGB=250; AnyBuiltInServiceAccount=$true }) -SourceModule 'SQL' | Out-Null
+Add-DataSet -Context $ctx -Name 'ExchangeServer' -Rows @([pscustomobject]@{ ServerName='SRV'; ProductName='Exchange Server 2016'; Version='15.1.2507.6'; ConfiguredRoles='MailboxRole'; IsUnsupportedVersion=$true; SupportEnd='2025-10-14'; HybridConfigured=$false; ManagementToolsOnly=$false; CmdletsAvailable=$false }) -SourceModule 'ExchangeSmtp' | Out-Null
+Add-DataSet -Context $ctx -Name 'SmtpRelayClients' -Rows @([pscustomobject]@{ ClientIp='10.0.0.50'; ClientIdentity='MFP01'; ConnectorIds='SRV\Relay'; MessagesInTracking=12; AcceptedInProtocolLog=0; ProtocolSessions=0; RejectedResponses=0; FirstSeen='2026-01-01'; LastSeen='2026-01-07'; Classification='Confirmed active SMTP client'; Confidence='Confirmed' }) -SourceModule 'ExchangeSmtp' | Out-Null
+Add-DataSet -Context $ctx -Name 'SmtpRelayAssessment' -Rows @([pscustomobject]@{ Status='Confirmed active SMTP client'; Conditions='Exchange cmdlets unavailable; Confirmed active SMTP client'; Recommendation='Active relay dependency found'; UsageProvenUnused=$false; EvidenceCoverageDays=7; ConfirmedClients=1 }) -SourceModule 'ExchangeSmtp' | Out-Null
+Add-DataSet -Context $ctx -Name 'AppStackSummary' -Rows @([pscustomobject]@{ Stack='Sage 300 Construction and Real Estate'; HostRole='Server and client'; Confidence='Confirmed'; ServerVersions='24.1'; ClientVersions='Sage 300 CRE 23.1'; LocalServerClientVersionsDiffer=$true; RdsHostWithClient=$false; EvidenceIds='EV-0001, EV-0002' }) -Visibility 'Both' -SourceModule 'ApplicationStacks' | Out-Null
+Add-DataSet -Context $ctx -Name 'WorkloadProfile' -Rows @([pscustomobject]@{ ComputerName='SRV'; TotalMemoryGB=32; FreeCapacityGB=40; ShareSizeUnknown=$true; SizingNote='Not a sizing recommendation' }) -SourceModule 'WorkloadProfile' | Out-Null
+Add-DataSet -Context $ctx -Name 'DhcpServerSummary' -Rows @([pscustomobject]@{ HostsActiveDhcp=$true; ActiveScopeCount=2; ReservationCount=5; HasFailover=$false }) -SourceModule 'DHCP' | Out-Null
+Add-DataSet -Context $ctx -Name 'PrintServerSummary' -Rows @([pscustomobject]@{ ScanWorkflowVerificationNeeded=$true; MultifunctionLikelyCount=1; PrintLogStatus='Disabled'; PrintManagementAgents='' }) -SourceModule 'PrintServer' | Out-Null
 Add-DependencyEdge -Context $ctx -SourceType 'Service' -SourceName 'AcmeSvc' -DependencyType 'RunsAs' -Target 'CORP\svc-acme' -SourceDataset 'Services' | Out-Null
 Add-DependencyEdge -Context $ctx -SourceType 'SmbShare' -SourceName 'Data' -DependencyType 'ServesPath' -Target 'C:\Shares\Data' -SourceDataset 'FileShares' | Out-Null
 # ListeningPort edges are excluded by default from the rendered dependency diagram (real-world
@@ -179,7 +188,7 @@ Assert-That -Name 'draft-scope-language.md has both Assumptions and Exclusions c
 
 # wbs-inputs.csv WBS areas must be real areas, not an echo of the finding category.
 $wbsRows = @(Import-Csv -LiteralPath (Join-Path $out 'reports\supporting\wbs-inputs.csv'))
-$rawCats = @('Applications','Backup / DR','Certificates','Database','Discovery Quality','File / Print','Hyper-V / Cluster','Identity / AD / DC','Licensing','Network','Operating System','Performance','Security','Service Account','Services / Tasks','Storage','Vendor','Web')
+$rawCats = @('Applications','Backup / DR','Certificates','Database','Discovery Quality','File / Print','Hyper-V / Cluster','Identity / AD / DC','Licensing','Mail / SMTP','Network','Operating System','Performance','Security','Service Account','Services / Tasks','Storage','Vendor','Web')
 $echoed = @($wbsRows | Where-Object { $rawCats -contains $_.SuggestedWBSArea })
 Assert-That -Name ("wbs-inputs.csv WBS areas are real areas (raw-category echoes: {0})" -f $echoed.Count) -Ok ($echoed.Count -eq 0)
 
@@ -188,6 +197,18 @@ Assert-That -Name ("wbs-inputs.csv WBS areas are real areas (raw-category echoes
 $cpRows = @()
 if ($ctx.DataSets.Contains('CriticalPaths')) { $cpRows = @($ctx.DataSets['CriticalPaths'].Rows) }
 Assert-That -Name 'CriticalPaths includes the SQL binary path' -Ok (@($cpRows | Where-Object { $_.Source -eq 'SQL' }).Count -gt 0)
+
+# Migration-scoping round: new rules fire, carry a normalized risk category, and render.
+$smtpF = @($ctx.Findings | Where-Object { $_.Title -eq 'Active SMTP relay client found in existing logs' })
+Assert-That -Name 'SMTP relay client finding emitted with risk category SMTP relay' -Ok ($smtpF.Count -eq 1 -and $smtpF[0].RiskCategory -eq 'SMTP relay')
+Assert-That -Name 'Exchange and application-stack findings emitted' -Ok ((@($ctx.Findings | Where-Object { $_.Title -eq 'Exchange Server is installed' }).Count -eq 1) -and (@($ctx.Findings | Where-Object { $_.Title -like 'Line-of-business application engine*' }).Count -eq 1))
+Assert-That -Name 'every finding carries a RiskCategory' -Ok (@($ctx.Findings | Where-Object { -not $_.RiskCategory -and $_.SourceModule -ne 'RolesFeatures' }).Count -eq 0)
+Assert-That -Name 'DecommissionStates produced, physical removal always gated' -Ok ($ctx.DataSets.Contains('DecommissionStates') -and @($ctx.DataSets['DecommissionStates'].Rows | Where-Object { $_.State -like 'Physical removal*' -and $_.Applies }).Count -eq 1)
+foreach ($sec in @('SMTP Relay Assessment','Application Stacks','Server Workload &amp; Capacity','Decommission States')) { Assert-That -Name ("internal HTML renders section '{0}'" -f $sec) -Ok ($html.Contains("<h2>$sec</h2>")) }
+$clientHtml = Get-Content -LiteralPath (Join-Path $out 'reports\client-discovery-report.html') -Raw
+Assert-That -Name 'client report lists application components without evidence IDs or versions' -Ok (($clientHtml -match 'Line-of-business application components') -and ($clientHtml -notmatch 'EV-0001') -and ($clientHtml -notmatch '10\.0\.0\.50'))
+$wbsHdr = (Get-Content -LiteralPath (Join-Path $out 'reports\supporting\wbs-inputs.csv') -TotalCount 1)
+Assert-That -Name 'wbs-inputs.csv carries RiskCategory after the original columns' -Ok ($wbsHdr -match 'ValidationQuestion.*RiskCategory')
 
 # EvidenceManifest registers its dataset after the generic export, so it exports its own.
 Assert-That -Name 'EvidenceManifest dataset exported to csv/'  -Ok (Test-Path -LiteralPath (Join-Path $out 'evidence\data\csv\EvidenceManifest.csv'))

@@ -25,8 +25,29 @@ separation keeps collectors simple and makes risk logic data-driven and auditabl
     EmphasisReason              = ''               # why, when IsEmphasized is true
     SourceModule                = 'ServicesTasks'
     SourceDataset               = 'Services'
+    RiskCategory                = 'Application compatibility'   # normalized risk-register category (1.1.0)
+    ClientSafe                  = $true           # may Title/WhyItMatters/question reach client reports?
+    SourceServer                = 'APP01'          # the server the evidence came from (1.1.0)
 }
 ```
+
+### RiskCategory, ClientSafe and SourceServer (1.1.0)
+
+`RiskCategory` is the cross-cutting label the risk register and the fleet rollup group by. A rule
+may set `riskCategory` explicitly; otherwise `Get-RiskCategoryForRule` derives it from the rule-id
+prefix (DNS/DHCP/print/ODBC/backup/time rules) or the rule's `category`. The normalized values are:
+Application compatibility, Database migration, ODBC dependency, IIS dependency, SMTP relay, Exchange
+decommissioning, Entra Connect relocation, AD role migration, DNS cutover, DHCP cutover, File
+migration, Printer migration, Target capacity, Backup readiness, Unsupported software, Hypervisor
+decommissioning, Incomplete discovery. `Category` itself is unchanged, so compliance lenses, the
+complexity rubric and the readiness subsections behave exactly as before.
+
+`ClientSafe` defaults to `true`. A rule with `"clientSafe": false` keeps its finding out of
+client headlines and its validation question out of the client interview pack. Evidence never
+reaches a client document whatever this says. Rule questions are written without IPs, accounts or
+paths so they can be shown to a client; specifics go in `evidenceTemplate`.
+
+All three columns are appended to `ScopingRisks` (CSV/JSON) after the original ones.
 
 `FindingId` is assigned sequentially by `Add-Finding` (`FIND-0001`, `FIND-0002`, …).
 
@@ -111,6 +132,20 @@ rule); truncation is logged as a limitation.
 so multi-condition logic is computed by the collector into a boolean (`NoFullBackup`,
 `XpCmdShellEnabled`, `VersionBehindHostDefault`, `IsDifferencing`) that the rule then tests.
 
+### Rules added for migration scoping (1.1.0)
+
+68 rules covering SQL (unsupported versions, multiple versions/application instances, agent
+disabled, failed enumeration, service identities, data volume, dynamic ports, application-specific
+instances), ODBC (both bitness views, file-based, points at this server, driver missing),
+IIS (LocalSystem pools, missing/UNC paths, stopped sites, HTTPS rebinds), Exchange and SMTP relay
+(`Mail / SMTP` category: installed, unsupported, hybrid, tools-only, cmdlets unavailable,
+anonymous relay, confirmed/possible relay clients, evidence unavailable, no usage found),
+Entra Connect (active sync server, staging unknown, sync errors, PTA agents), application stacks,
+file migration, printing, AD readiness (single DC, all FSMO, unsupported DCs, replication, FRS,
+dcdiag), DHCP, DNS, hypervisor decommissioning, capacity and workload event errors. The SMTP rules
+never conclude "unused": the best outcome is an Info finding that says no usage was found *in the
+available logs*.
+
 ### Adding or editing a rule
 
 Add an object to `rules[]`:
@@ -129,7 +164,9 @@ Add an object to `rules[]`:
   "suggestedValidationQuestion": "...",
   "complianceRelevance": ["Insecure protocol review"],
   "sourceModule": "SecurityPosture",
-  "sourceDataset": "SecurityPosture"
+  "sourceDataset": "SecurityPosture",
+  "riskCategory": "Unsupported software",
+  "clientSafe": true
 }
 ```
 

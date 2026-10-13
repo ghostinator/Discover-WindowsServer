@@ -44,7 +44,13 @@ function Invoke-DiscoveryCollection {
         @{ Name='Eaton IPP'; Cat='UPS'; Pattern='(?i)Eaton|Intelligent Power' },
         @{ Name='Dell OpenManage'; Cat='Hardware'; Pattern='(?i)OpenManage|Dell EMC' },
         @{ Name='HPE Management'; Cat='Hardware'; Pattern='(?i)HP(E)? (Insight|System|iLO|Smart)' },
-        @{ Name='Lenovo XClarity/OneCLI'; Cat='Hardware'; Pattern='(?i)XClarity|OneCLI|ThinkSystem' }
+        @{ Name='Lenovo XClarity/OneCLI'; Cat='Hardware'; Pattern='(?i)XClarity|OneCLI|ThinkSystem' },
+        @{ Name='PrinterLogic / PrinterCloud (Vasion)'; Cat='Print management'; Pattern='(?i)PrinterLogic|PrinterCloud|Vasion Print|PrinterInstallerClient' },
+        @{ Name='PaperCut'; Cat='Print management'; Pattern='(?i)PaperCut' },
+        @{ Name='Universal Print connector'; Cat='Print management'; Pattern='(?i)Universal Print Connector|PrintConnectorSvc' },
+        @{ Name='N-able / SolarWinds RMM'; Cat='RMM'; Pattern='(?i)N-able|Windows Agent Service|SolarWinds MSP' },
+        @{ Name='NinjaOne'; Cat='RMM'; Pattern='(?i)NinjaRMM|NinjaOne' },
+        @{ Name='Kaseya VSA'; Cat='RMM'; Pattern='(?i)Kaseya' }
     )
     try {
         $svcRows = @(if ($Context.DataSets.Contains('Services')) { @($Context.DataSets['Services'].Rows) } else { @() })

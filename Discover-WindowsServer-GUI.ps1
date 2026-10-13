@@ -69,6 +69,11 @@ function Build-DiscoveryArgumentList {
         [string]$EventLogDaysText,
         [string]$MaxEventSamplesText,
         [string]$ConfigScanMaxFileSizeMBText,
+        # Migration-scoping options. Both bools are privacy-sensitive and default off.
+        [string]$ExchangeLogDaysText,
+        [bool]$CopyExchangeRawLogs,
+        [bool]$IncludeSensitiveEvidence,
+        [string]$HypervisorInventoryPath,
         [switch]$WhatIfOnly
     )
     $argList = [System.Collections.Generic.List[string]]::new()
@@ -92,6 +97,9 @@ function Build-DiscoveryArgumentList {
     if ($GenerateEvidenceManifest)    { $argList.Add('-GenerateEvidenceManifest') }
     if ($SkipZip)                     { $argList.Add('-SkipZip') }
     if ($VerboseLogging)              { $argList.Add('-VerboseLogging') }
+    if ($CopyExchangeRawLogs)         { $argList.Add('-CopyExchangeRawLogs') }
+    if ($IncludeSensitiveEvidence)    { $argList.Add('-IncludeSensitiveEvidence') }
+    if (-not [string]::IsNullOrWhiteSpace($HypervisorInventoryPath)) { $argList.Add('-HypervisorInventoryPath'); $argList.Add("`"$($HypervisorInventoryPath.Trim())`"") }
 
     $numericPairs = @(
         @{ Text = $MaxDepthText;                Arg = '-MaxDepth' }
@@ -100,6 +108,7 @@ function Build-DiscoveryArgumentList {
         @{ Text = $EventLogDaysText;             Arg = '-EventLogDays' }
         @{ Text = $MaxEventSamplesText;          Arg = '-MaxEventSamplesPerLog' }
         @{ Text = $ConfigScanMaxFileSizeMBText;  Arg = '-ConfigScanMaxFileSizeMB' }
+        @{ Text = $ExchangeLogDaysText;          Arg = '-ExchangeLogDays' }
     )
     foreach ($pair in $numericPairs) {
         $val = 0
@@ -293,7 +302,7 @@ $driftScript    = Join-Path $scriptRoot 'tools\Compare-DiscoveryRuns.ps1'
       <TabItem Header="Options">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
           <StackPanel Margin="10">
-            <CheckBox Name="DeepFileShareScanCheck" Content="Deep file share scan" Margin="0,4"/>
+            <CheckBox Name="DeepFileShareScanCheck" Content="Deep file share scan (EXPENSIVE: crawls every user share - file counts, sizes, ages, long paths)" Margin="0,4"/>
             <CheckBox Name="FullEventLogExportCheck" Content="Full event log export" Margin="0,4"/>
             <CheckBox Name="IncludeConfigDependencyScanCheck" Content="Scan config files for hardcoded dependencies" Margin="0,4"/>
             <CheckBox Name="IncludeUserProfilesCheck" Content="Include user profile folders" Margin="0,4"/>
@@ -304,6 +313,17 @@ $driftScript    = Join-Path $scriptRoot 'tools\Compare-DiscoveryRuns.ps1'
             <CheckBox Name="SkipZipCheck" Content="Skip building the zip archive" Margin="0,4"/>
             <CheckBox Name="VerboseLoggingCheck" Content="Verbose logging" Margin="0,4"/>
 
+            <TextBlock Text="Migration scoping" FontWeight="Bold" Margin="0,14,0,4"/>
+            <TextBlock TextWrapping="Wrap" Foreground="Gray" FontStyle="Italic" Margin="0,0,0,4"
+                       Text="SQL/ODBC, IIS, Exchange and SMTP relay, application stacks (Sage, Actian), file migration, printers, Entra Connect, AD readiness and workload profiles run automatically where the role exists; pick or drop them individually on the Custom Modules tab. Nothing here changes a server."/>
+            <CheckBox Name="CopyExchangeRawLogsCheck" Foreground="DarkRed" Content="Copy raw Exchange message-tracking / SMTP logs (PRIVACY-SENSITIVE: email addresses and message metadata)" Margin="0,4"/>
+            <CheckBox Name="IncludeSensitiveEvidenceCheck" Foreground="DarkRed" Content="Include privacy-sensitive evidence (full sample sender/recipient addresses, SMB session user names)" Margin="0,4"/>
+            <Label Content="External hypervisor inventory (VMware / RMM export, CSV or JSON - optional)" Margin="0,6,0,0"/>
+            <DockPanel>
+              <Button Name="BrowseHypervisorInventoryButton" Content="Browse..." DockPanel.Dock="Right" Width="80" Margin="5,0,0,0"/>
+              <TextBox Name="HypervisorInventoryPathBox"/>
+            </DockPanel>
+
             <TextBlock Text="Tuning" FontWeight="Bold" Margin="0,14,0,4"/>
             <Grid>
               <Grid.ColumnDefinitions>
@@ -313,6 +333,7 @@ $driftScript    = Join-Path $scriptRoot 'tools\Compare-DiscoveryRuns.ps1'
               <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
               </Grid.RowDefinitions>
               <Label Grid.Row="0" Grid.Column="0" Content="Max share scan depth"/>
               <TextBox  Grid.Row="0" Grid.Column="1" Name="MaxDepthBox" Text="3"/>
@@ -326,6 +347,8 @@ $driftScript    = Join-Path $scriptRoot 'tools\Compare-DiscoveryRuns.ps1'
               <TextBox  Grid.Row="4" Grid.Column="1" Name="MaxEventSamplesBox" Text="50"/>
               <Label Grid.Row="5" Grid.Column="0" Content="Config scan max file size (MB)"/>
               <TextBox  Grid.Row="5" Grid.Column="1" Name="ConfigScanMaxFileSizeMBBox" Text="10"/>
+              <Label Grid.Row="6" Grid.Column="0" Content="Exchange / SMTP log lookback (days)"/>
+              <TextBox  Grid.Row="6" Grid.Column="1" Name="ExchangeLogDaysBox" Text="7"/>
             </Grid>
           </StackPanel>
         </ScrollViewer>
@@ -548,6 +571,7 @@ foreach ($name in @(
     'IncludeRecycleBinCheck', 'IncludeWindowsFolderCheck', 'AttemptSqlIntegratedAuthCheck', 'GenerateEvidenceManifestCheck',
     'SkipZipCheck', 'VerboseLoggingCheck', 'MaxDepthBox', 'LargeFileThresholdGBBox', 'OldFileYearsBox', 'EventLogDaysBox',
     'MaxEventSamplesBox', 'ConfigScanMaxFileSizeMBBox', 'ModuleListItems',
+    'CopyExchangeRawLogsCheck', 'IncludeSensitiveEvidenceCheck', 'HypervisorInventoryPathBox', 'BrowseHypervisorInventoryButton', 'ExchangeLogDaysBox',
     'DeliveryMethodCombo', 'EmailFieldsPanel', 'SmtpFieldsPanel', 'PostalFieldsPanel', 'UploadFieldsPanel', 'CredentialFieldsPanel',
     'FromBox', 'ToBox', 'SubjectBox', 'SmtpServerBox', 'SmtpPortBox', 'UseSslCheck', 'PostalServerUrlBox',
     'UploadUrlBox', 'UploadMethodCombo', 'CredentialNameBox', 'SetCredentialButton', 'CredentialStatusText',
@@ -659,6 +683,7 @@ $numericOptionControls = @{
     eventLogDays             = 'EventLogDaysBox'
     maxEventSamplesPerLog    = 'MaxEventSamplesBox'
     configScanMaxFileSizeMB  = 'ConfigScanMaxFileSizeMBBox'
+    exchangeLogDays          = 'ExchangeLogDaysBox'
 }
 
 function Update-OptionsForMode {
@@ -1340,6 +1365,10 @@ function Start-DiscoveryRun {
         -MaxDepthText $ui['MaxDepthBox'].Text -LargeFileThresholdGBText $ui['LargeFileThresholdGBBox'].Text `
         -OldFileYearsText $ui['OldFileYearsBox'].Text -EventLogDaysText $ui['EventLogDaysBox'].Text `
         -MaxEventSamplesText $ui['MaxEventSamplesBox'].Text -ConfigScanMaxFileSizeMBText $ui['ConfigScanMaxFileSizeMBBox'].Text `
+        -ExchangeLogDaysText $ui['ExchangeLogDaysBox'].Text `
+        -CopyExchangeRawLogs ([bool]$ui['CopyExchangeRawLogsCheck'].IsChecked) `
+        -IncludeSensitiveEvidence ([bool]$ui['IncludeSensitiveEvidenceCheck'].IsChecked) `
+        -HypervisorInventoryPath $ui['HypervisorInventoryPathBox'].Text `
         -WhatIfOnly:$WhatIfOnly
     $hostExe = (Get-Process -Id $PID).Path
     $script:RunOutputPath = $null
@@ -1357,6 +1386,14 @@ function Start-DiscoveryRun {
     $timer.Start()
 }
 
+$ui['BrowseHypervisorInventoryButton'].Add_Click({
+    $dlg = New-Object Microsoft.Win32.OpenFileDialog
+    $dlg.Filter = 'Inventory export (*.csv;*.json)|*.csv;*.json|All files (*.*)|*.*'
+    if ($dlg.ShowDialog()) { $ui['HypervisorInventoryPathBox'].Text = $dlg.FileName }
+})
+$ui['CopyExchangeRawLogsCheck'].Add_Checked({
+    [void][System.Windows.MessageBox]::Show('Raw Exchange logs contain email addresses and message metadata. They will be copied into evidence\raw\exchange-logs of the run folder - handle and share that folder accordingly.', 'Privacy-sensitive option', 'OK', 'Warning')
+})
 $ui['RunButton'].Add_Click({ Start-DiscoveryRun })
 $ui['WhatIfButton'].Add_Click({ Start-DiscoveryRun -WhatIfOnly })
 

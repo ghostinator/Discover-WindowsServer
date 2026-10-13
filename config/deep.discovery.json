@@ -11,7 +11,8 @@
     "includeRecycleBin": false,
     "includeWindowsFolder": false,
     "eventLogDays": 30,
-    "maxEventSamplesPerLog": 100
+    "maxEventSamplesPerLog": 100,
+    "exchangeLogDays": 14
   },
   "forceEnableModules": [
     "ConfigDependencyScan"

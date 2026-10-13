@@ -168,6 +168,12 @@ foreach ($d in $moduleDirs) {
         $produced[$n] += $d.Name
     }
 }
+# Collectors build some rows through shared Core helpers (ConvertTo-OdbcDsnRecord), so the
+# field names Core emits count as every collector's own.
+if ($symbols.ContainsKey('Core')) {
+    # Get-FileSymbolSet's HashSet unrolls to a plain array on return, so concatenate rather than .Add().
+    foreach ($k in @($symbols.Keys)) { if ($k -ne 'Core') { $symbols[$k] = @($symbols[$k]) + @($symbols['Core']) } }
+}
 # The engine itself also registers datasets.
 $engine = Join-Path $root 'Discover-WindowsServer.psm1'
 if (Test-Path -LiteralPath $engine) {
@@ -348,6 +354,33 @@ if ($cfg.ContainsKey('application-fingerprints')) {
 Test-Item -Name 'fingerprint matcher sources are produced datasets' -Ok ($fpBadSource.Count -eq 0) -Detail ($fpBadSource -join "`n")
 Test-Item -Name 'fingerprint matcher fields exist in their producer' -Ok ($fpBadField.Count -eq 0) -Detail ($fpBadField -join "`n")
 Test-Item -Name 'fingerprint matcher patterns compile'              -Ok ($fpBadConf.Count -eq 0) -Detail ($fpBadConf -join ', ')
+
+# ---- 9b2. Application stacks ------------------------------------------------
+Write-Section 'Application stacks'
+# Same silent failure mode as fingerprints: a source naming a dataset or field nobody emits never matches.
+$stBadSource = @(); $stBadField = @(); $stBadRx = @(); $stBadRole = @()
+$validRoles = @('Server','Client','Database','Driver','DSN','Licensing','Service','ScheduledTask','Data','Web','Process','Listener','EventLog')
+if ($cfg.ContainsKey('application-stacks')) {
+    foreach ($st in @($cfg['application-stacks'].stacks)) {
+        foreach ($c in @($st.components)) {
+            if ($validRoles -notcontains [string]$c.role) { $stBadRole += ("{0}/{1}: role '{2}'" -f $st.name, $c.component, $c.role) }
+            foreach ($s in @($c.sources)) {
+                $src = [string]$s.dataset
+                if (-not $produced.ContainsKey($src)) { $stBadSource += ("{0}/{1} -> {2}" -f $st.name, $c.component, $src); continue }
+                foreach ($fld in @($s.field, $s.versionField) | Where-Object { $_ }) {
+                    $found = $false
+                    foreach ($o in $produced[$src]) { if ($symbols[$o] -and $symbols[$o].Contains([string]$fld)) { $found = $true; break } }
+                    if (-not $found) { $stBadField += ("{0}/{1}: {2}.{3}" -f $st.name, $c.component, $src, $fld) }
+                }
+                try { [void][regex]::new([string]$s.pattern) } catch { $stBadRx += ("{0}/{1}" -f $st.name, $c.component) }
+            }
+        }
+    }
+}
+Test-Item -Name 'application-stack sources are produced datasets' -Ok ($stBadSource.Count -eq 0) -Detail ($stBadSource -join "`n")
+Test-Item -Name 'application-stack fields exist in their producer' -Ok ($stBadField.Count -eq 0) -Detail ($stBadField -join "`n")
+Test-Item -Name 'application-stack patterns compile'              -Ok ($stBadRx.Count -eq 0) -Detail ($stBadRx -join ', ')
+Test-Item -Name 'application-stack roles are known'               -Ok ($stBadRole.Count -eq 0) -Detail ($stBadRole -join "`n")
 
 # ---- 9c. Migration-complexity rubric coverage -------------------------------
 Write-Section 'Migration-complexity rubric'

@@ -16,7 +16,10 @@
     "includeUserProfiles": false,
     "includeRecycleBin": false,
     "includeWindowsFolder": false,
-    "moduleTimeoutSeconds": 600
+    "moduleTimeoutSeconds": 600,
+    "exchangeLogDays": 7,
+    "exchangeLogMaxFiles": 200,
+    "fileScanShareTimeoutSeconds": 180
   },
   "synthesisModules": [
     "RiskEngine",
@@ -41,7 +44,9 @@
     "DHCP",
     "IIS",
     "SQL",
+    "ExchangeSmtp",
     "HyperV",
+    "HypervisorInventory",
     "Cluster",
     "RDS",
     "NPS_RADIUS",
@@ -54,6 +59,8 @@
     "UserProfiles",
     "AzureHybrid",
     "PerformanceSnapshot",
-    "EventLogs"
+    "EventLogs",
+    "ApplicationStacks",
+    "WorkloadProfile"
   ]
 }

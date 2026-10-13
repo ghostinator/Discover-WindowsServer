@@ -57,7 +57,9 @@ function Invoke-DiscoverySynthesis {
             'Hyper-V / Cluster'   { 'Critical systems'; break }
             default               { 'General' }
         }
-        Add-FollowUpQuestion -Context $Context -Category $cat -Question $q -Module 'ClientInterviewPack' -RelatedFinding $f.FindingId -Audience 'ClientSafe' | Out-Null
+        # A rule marked clientSafe:false keeps its question in the internal pack only.
+        $aud = if ($f.PSObject.Properties['ClientSafe'] -and $f.ClientSafe -eq $false) { 'Internal' } else { 'ClientSafe' }
+        Add-FollowUpQuestion -Context $Context -Category $cat -Question $q -Module 'ClientInterviewPack' -RelatedFinding $f.FindingId -Audience $aud | Out-Null
     }
 
     # Ensure baseline category coverage even when a category produced no findings.

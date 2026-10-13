@@ -265,3 +265,100 @@ The command completed successfully
         $names | Should -Contain 'DC2.corp.local'
     }
 }
+
+Describe 'AD migration readiness parsers' {
+    It 'parses netdom query fsmo into one row per role with whole-label ownership' {
+        $text = "Schema master               DC1.corp.local`r`nDomain naming master        DC1.corp.local`r`nPDC                         DC10.corp.local`r`nRID pool manager            DC1.corp.local`r`nInfrastructure master       DC1.corp.local`r`nThe command completed successfully."
+        $rows = ConvertFrom-NetdomFsmo -Text $text -MyNames @('DC1')
+        $rows.Count | Should -Be 5
+        @($rows | Where-Object HeldByThisServer).Count | Should -Be 4
+        ($rows | Where-Object Role -eq 'PDC').HeldByThisServer | Should -BeFalse
+    }
+    It 'parses repadmin /replsummary rows and failure counts' {
+        $text = "Source DSA          largest delta    fails/total %%   error`r`n DC1                      05m:12s    0 /   5    0`r`n DC2                  >60 days       3 /   5   60  (1722) The RPC server is unavailable.`r`n`r`nDestination DSA     largest delta    fails/total %%   error`r`n DC1                      05m:12s    3 /   5   60  (1722) The RPC server is unavailable."
+        $rows = ConvertFrom-RepadminReplSummary -Text $text
+        $rows.Count | Should -Be 3
+        ($rows | Where-Object { $_.Direction -eq 'Destination' }).Fails | Should -Be 3
+        ($rows | Where-Object { $_.Dsa -eq 'DC2' }).Error | Should -Match '1722'
+    }
+    It 'judges DC operating system support by date, and never calls unknown text unsupported' {
+        Test-AdDcOsUnsupported -OperatingSystem 'Windows Server 2012 R2 Standard' -AsOf ([datetime]'2026-10-13') | Should -BeTrue
+        Test-AdDcOsUnsupported -OperatingSystem 'Windows Server 2022 Datacenter' -AsOf ([datetime]'2026-10-13') | Should -BeFalse
+        Test-AdDcOsUnsupported -OperatingSystem 'Something else' | Should -BeFalse
+    }
+}
+
+Describe 'Invoke-DiscoveryCollection - AD migration readiness' {
+    BeforeAll { $script:OrigName = $env:COMPUTERNAME }
+    AfterEach { $env:COMPUTERNAME = $script:OrigName }
+
+    It 'works without the ActiveDirectory PowerShell module and records an LDAP failure as a limitation' {
+        InModuleScope ActiveDirectory -Parameters @{ Cfg = $script:Config } {
+            param($Cfg)
+            Mock Get-CommandAvailable { $false }   # no RSAT / ActiveDirectory module, no SMB cmdlets
+            Mock Invoke-CimSafe { ,@([pscustomobject]@{ DomainRole = 3; PartOfDomain = $true; Domain = 'corp.local'; DNSHostName = 'srv1.corp.local' }) }
+            Mock Invoke-CommandLineSafe { [pscustomobject]@{ Succeeded = $false; StdOut = ''; StdErr = ''; ExitCode = 1; TimedOut = $false } }
+            Mock Get-AdDcInventory { $null }
+            $ctx = New-DiscoveryContext -Mode Fast -Config $Cfg
+            $raw = Invoke-DiscoveryCollection -Context $ctx
+            $raw.DomainContext.Count | Should -Be 1
+            $raw.DomainContext[0].DomainControllerCount | Should -BeNullOrEmpty
+            $raw.DomainContext[0].IsOnlyDomainController | Should -BeFalse
+            ($ctx.Limitations | Where-Object { $_.Message -match 'could not be read over LDAP' }) | Should -Not -BeNullOrEmpty
+        }
+    }
+
+    It 'detects a single-DC domain whose only DC holds every FSMO role' {
+        $env:COMPUTERNAME = 'DC1'
+        InModuleScope ActiveDirectory -Parameters @{ Cfg = $script:Config } {
+            param($Cfg)
+            Mock Get-CommandAvailable { $false }
+            Mock Invoke-CimSafe { ,@([pscustomobject]@{ DomainRole = 5; PartOfDomain = $true; Domain = 'corp.local'; DNSHostName = 'dc1.corp.local' }) }
+            Mock Invoke-CommandLineSafe {
+                switch ($FilePath) {
+                    'netdom.exe' { [pscustomobject]@{ Succeeded=$true; StdOut="Schema master DC1.corp.local`r`nDomain naming master DC1.corp.local`r`nPDC DC1.corp.local`r`nRID pool manager DC1.corp.local`r`nInfrastructure master DC1.corp.local"; ExitCode=0; TimedOut=$false } }
+                    'dfsrmig.exe' { [pscustomobject]@{ Succeeded=$true; StdOut="All domain controllers have migrated successfully to the Global state ('Eliminated')."; ExitCode=0; TimedOut=$false } }
+                    default { [pscustomobject]@{ Succeeded=$false; StdOut=''; ExitCode=1; TimedOut=$false } }
+                }
+            }
+            Mock Get-AdDcInventory { ,@([pscustomobject]@{ Name='DC1'; OperatingSystem='Windows Server 2016 Standard'; Site='HQ'; IsGlobalCatalog=$true; IsReadOnly=$false; IsThisServer=$true; IsUnsupportedOs=$false }) }
+            $raw = Invoke-DiscoveryCollection -Context (New-DiscoveryContext -Mode Fast -Config $Cfg)
+            $dc = $raw.DomainContext[0]
+            $dc.DomainControllerCount | Should -Be 1
+            $dc.IsOnlyDomainController | Should -BeTrue
+            $dc.HoldsAllFsmoRoles | Should -BeTrue
+            $dc.FsmoRolesHeld | Should -Be 5
+            $dc.SysvolReplication | Should -Be 'DFSR'
+            @($raw.AdFsmoRoles).Count | Should -Be 5
+        }
+    }
+
+    It 'does not call a DC the only one when a second DC exists' {
+        $env:COMPUTERNAME = 'DC1'
+        InModuleScope ActiveDirectory -Parameters @{ Cfg = $script:Config } {
+            param($Cfg)
+            Mock Get-CommandAvailable { $false }
+            Mock Invoke-CimSafe { ,@([pscustomobject]@{ DomainRole = 5; PartOfDomain = $true; Domain = 'corp.local'; DNSHostName = 'dc1.corp.local' }) }
+            Mock Invoke-CommandLineSafe { [pscustomobject]@{ Succeeded=$false; StdOut=''; ExitCode=1; TimedOut=$false } }
+            Mock Get-AdDcInventory { ,@([pscustomobject]@{ Name='DC1'; IsUnsupportedOs=$false }, [pscustomobject]@{ Name='DC2'; IsUnsupportedOs=$true }) }
+            $raw = Invoke-DiscoveryCollection -Context (New-DiscoveryContext -Mode Fast -Config $Cfg)
+            $raw.DomainContext[0].IsOnlyDomainController | Should -BeFalse
+            $raw.DomainContext[0].UnsupportedDcCount | Should -Be 1
+        }
+    }
+}
+
+Describe 'Risk rules - FSMO on a retiring server' {
+    It 'emits the all-FSMO and single-DC findings, prioritised for a Decommission project' {
+        Import-Module (Join-Path $script:Root 'modules\Output\Output.psm1') -Force -DisableNameChecking
+        Import-Module (Join-Path $script:Root 'modules\RiskEngine\RiskEngine.psm1') -Force -DisableNameChecking
+        $ctx = New-DiscoveryContext -Mode Fast -ProjectType 'Decommission' -Config $script:Config
+        Add-DataSet -Context $ctx -Name 'DomainContext' -Rows @([pscustomobject]@{ IsDomainController=$true; HoldsFsmoRole=$true; HoldsAllFsmoRoles=$true; IsOnlyDomainController=$true; ReplicationFailures=$null; SysvolOnFrs=$false }) | Out-Null
+        Invoke-DiscoveryRiskAnalysis -Context $ctx
+        $fsmo = @($ctx.Findings | Where-Object Title -eq 'Server holds all FSMO roles')
+        $fsmo.Count | Should -Be 1
+        $fsmo[0].IsEmphasized | Should -BeTrue
+        $fsmo[0].RiskCategory | Should -Be 'AD role migration'
+        @($ctx.Findings | Where-Object Title -eq 'Only domain controller in the domain').Count | Should -Be 1
+    }
+}

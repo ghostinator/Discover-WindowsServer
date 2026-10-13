@@ -161,10 +161,10 @@ function Invoke-DiscoveryCollection {
                 foreach ($k in (Get-ChildItem -LiteralPath $odbcPath -ErrorAction SilentlyContinue)) {
                     if ($k.PSChildName -eq 'ODBC Data Sources') { continue }
                     $props = Get-ItemProperty -LiteralPath $k.PSPath -ErrorAction SilentlyContinue
-                    $dsns.Add([pscustomobject]@{
-                        Account=$account; DsnName=$k.PSChildName; Driver=[string]$props.Driver
-                        Server=[string]$props.Server; Database=[string]$props.Database; Scope='User'; Bitness=$bitness
-                    })
+                    # Shared Core normaliser: drops PWD/UID/credential attributes, adds file-path,
+                    # local-server and application-family flags. Account/DsnName/Driver/Server/
+                    # Database/Scope/Bitness keep their original meaning.
+                    $dsns.Add((ConvertTo-OdbcDsnRecord -DsnName $k.PSChildName -Properties $props -Scope 'User' -Bitness $bitness -Account $account -Context $Context))
                     if ($props.Server) {
                         Add-DependencyEdge -Context $Context -SourceType 'ODBC DSN (user)' -SourceName $k.PSChildName `
                             -DependencyType 'ConnectsTo' -Target ("{0}/{1}" -f $props.Server, $props.Database) -Evidence 'Per-user ODBC DSN' `
@@ -212,6 +212,9 @@ function Invoke-DiscoveryCollection {
             }
         }
     } catch { }
+
+    # Same-name-in-both-bitness and driver-registered checks; OdbcDrivers comes from SQL (earlier).
+    try { Set-OdbcCrossChecks -Dsns @($dsns) -Drivers @(if ($Context.DataSets.Contains('OdbcDrivers')) { @($Context.DataSets['OdbcDrivers'].Rows) } else { @() }) } catch { }
 
     return ,@{
         UserProfiles=@($profiles); MappedDrives=@($drives); UserOdbcDsns=@($dsns); LogonScripts=@($scripts)

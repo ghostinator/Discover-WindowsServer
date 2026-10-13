@@ -193,9 +193,36 @@ function Get-WbsAreasForCategory {
         'Performance'        = @('Capacity and Performance Review','Target Sizing')
         'Services / Tasks'   = @('Service and Automation Migration','Cutover Validation')
         'Discovery Quality'  = @('Discovery and Documentation','Client Coordination')
+        'Mail / SMTP'        = @('Exchange Decommissioning','SMTP Relay Migration','Cutover Validation')
     }
     if ($Category -and $map.ContainsKey($Category)) { return ,@($map[$Category]) }
     return ,@()
+}
+
+function Get-RiskCategoryForRule {
+    <#
+        Normalized risk-register category for a rule: an explicit "riskCategory" on the rule wins,
+        then a rule-id prefix (DNS/DHCP/print/ODBC rules live under broader categories), then the
+        rule's own category. Falls back to the category text itself so nothing is ever blank.
+    #>
+    param([object]$Rule)
+    if ($Rule.PSObject.Properties['riskCategory'] -and $Rule.riskCategory) { return [string]$Rule.riskCategory }
+    $byPrefix = [ordered]@{
+        'RULE-DNS-' = 'DNS cutover'; 'RULE-DHCP-' = 'DHCP cutover'; 'RULE-PRINT-' = 'Printer migration'
+        'RULE-ODBC-' = 'ODBC dependency'; 'RULE-USER-002' = 'ODBC dependency'; 'RULE-HYBRID-' = 'Entra Connect relocation'
+        'RULE-BAK-' = 'Backup readiness'; 'RULE-OS-EOL' = 'Unsupported software'; 'RULE-TIME-' = 'AD role migration'
+        'RULE-CORE-' = 'Incomplete discovery'; 'RULE-PERF-' = 'Target capacity'; 'RULE-STG-' = 'Target capacity'
+    }
+    foreach ($p in $byPrefix.Keys) { if ([string]$Rule.id -like "$p*") { return $byPrefix[$p] } }
+    $byCategory = @{
+        'Identity / AD / DC' = 'AD role migration'; 'Database' = 'Database migration'; 'Applications' = 'Application compatibility'
+        'Web' = 'IIS dependency'; 'File / Print' = 'File migration'; 'Backup / DR' = 'Backup readiness'
+        'Hyper-V / Cluster' = 'Hypervisor decommissioning'; 'Operating System' = 'Unsupported software'
+        'Discovery Quality' = 'Incomplete discovery'; 'Performance' = 'Target capacity'; 'Storage' = 'Target capacity'
+    }
+    $cat = [string]$Rule.category
+    if ($byCategory.ContainsKey($cat)) { return $byCategory[$cat] }
+    return $cat
 }
 
 function Invoke-DiscoveryRiskAnalysis {
@@ -250,6 +277,9 @@ function Invoke-DiscoveryRiskAnalysis {
             # content. Falls back to $rule.confidence when the field is absent/blank on a row.
             $confidenceField = ''
             if ($rule.PSObject.Properties['confidenceField']) { $confidenceField = [string]$rule.confidenceField }
+            $riskCategory = Get-RiskCategoryForRule -Rule $rule
+            $clientSafe = $true
+            if ($rule.PSObject.Properties['clientSafe']) { $clientSafe = [bool]$rule.clientSafe }
 
             if ($emitPerRow -and $eval.Rows.Count -gt 0) {
                 $cap = 200  # avoid pathological finding explosions; note truncation
@@ -274,7 +304,7 @@ function Invoke-DiscoveryRiskAnalysis {
                         -WhyItMattersForScoping $rule.whyItMattersForScoping -PotentialProjectImpact $impact `
                         -SuggestedValidationQuestion $question -SuggestedScopeLanguage $scopeLang `
                         -LikelyAffectedWBSAreas $wbs -Subject $subject -IsEmphasized $emphasized -EmphasisReason $emphasisReason `
-                        -SourceModule $rule.sourceModule -SourceDataset $rule.sourceDataset
+                        -SourceModule $rule.sourceModule -SourceDataset $rule.sourceDataset -RiskCategory $riskCategory -ClientSafe $clientSafe
                     $f.ComplianceRelevance = Get-ComplianceRelevanceForFinding -Context $Context -Finding $f -BaseRelevance $baseCompliance
                     $emitted++
                 }
@@ -292,7 +322,7 @@ function Invoke-DiscoveryRiskAnalysis {
                     -WhyItMattersForScoping $rule.whyItMattersForScoping -PotentialProjectImpact $impact `
                     -SuggestedValidationQuestion $question -SuggestedScopeLanguage $scopeLang `
                     -LikelyAffectedWBSAreas $wbs -IsEmphasized $emphasized -EmphasisReason $emphasisReason `
-                    -SourceModule $rule.sourceModule -SourceDataset $rule.sourceDataset
+                    -SourceModule $rule.sourceModule -SourceDataset $rule.sourceDataset -RiskCategory $riskCategory -ClientSafe $clientSafe
                 $f.ComplianceRelevance = Get-ComplianceRelevanceForFinding -Context $Context -Finding $f -BaseRelevance $baseCompliance
                 $emitted++
             }
@@ -354,6 +384,7 @@ function Build-MigrationComplexity {
         @{ Category='Operating system currency';      Cats=@('Operating System');              Kw=@() ; Why='An OS at or near end of support constrains the target platform and may force an in-place upgrade or a rebuild.' }
         @{ Category='Performance headroom';           Cats=@('Performance');                   Kw=@() ; Why='Observed CPU/memory pressure drives target sizing and whether a like-for-like move is safe.' }
         @{ Category='Automation / scheduled work';    Cats=@('Services / Tasks');              Kw=@() ; Why='Services and scheduled tasks must be reproduced on the target; undocumented automation is a common cutover surprise.' }
+        @{ Category='Mail / SMTP dependency';         Cats=@('Mail / SMTP');                   Kw=@() ; Why='Exchange roles and SMTP relay clients must be moved before the server can be retired; relay clients are frequently undocumented devices.' }
     )
     $rows = foreach ($r in $rubric) {
         $res = Get-ComplexityRating -Findings $f -Categories $r.Cats -ImpactKeywords $r.Kw
@@ -383,6 +414,9 @@ function Build-WbsInputs {
             Evidence          = $f.Evidence
     SuggestedScopeNote= $f.SuggestedScopeLanguage
             ValidationQuestion= $f.SuggestedValidationQuestion
+            RiskCategory      = $f.RiskCategory
+            Confidence        = $f.Confidence
+            SourceModule      = $f.SourceModule
         }
     }
     Add-DataSet -Context $Context -Name 'WbsInputs' -Description 'Work-breakdown-structure inputs derived from findings.' -Rows @($rows) -Visibility 'Internal' -SourceModule 'RiskEngine' | Out-Null
@@ -408,7 +442,7 @@ function Build-ReadinessScore {
 
     $subsectionMap = [ordered]@{
         'Identity & Access'         = @('Identity / AD / DC', 'Service Account', 'Security')
-        'Data & Applications'       = @('Database', 'Applications', 'Web', 'File / Print', 'Storage')
+        'Data & Applications'       = @('Database', 'Applications', 'Web', 'File / Print', 'Storage', 'Mail / SMTP')
         'Infrastructure & Platform' = @('Operating System', 'Hyper-V / Cluster', 'Network', 'Performance', 'Services / Tasks')
         'Continuity & Compliance'   = @('Backup / DR', 'Certificates', 'Licensing', 'Vendor')
         # Its own subsection, deliberately not folded into another one: a low score here means
@@ -538,5 +572,5 @@ function Invoke-DiscoverySynthesis {
 Export-ModuleMember -Function `
     'Get-DiscoveryModuleMetadata','Test-DiscoveryPrerequisites','Invoke-DiscoveryRiskAnalysis', `
     'Invoke-DiscoverySynthesis','Test-RuleCondition','Expand-RuleTokens','Get-ComplianceRelevanceForFinding', `
-    'Test-RuleEmphasizedForProjectType','Get-WbsAreasForCategory', `
+    'Test-RuleEmphasizedForProjectType','Get-WbsAreasForCategory','Get-RiskCategoryForRule', `
     'Build-MigrationComplexity','Build-WbsInputs','Build-DependencyGraph','Build-ReadinessScore'

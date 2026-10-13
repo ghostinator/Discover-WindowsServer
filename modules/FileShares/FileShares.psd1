@@ -6,7 +6,7 @@
     CompanyName       = 'Brandon Cook'
     Description       = 'FileShares collector module for the Windows Server Discovery Toolkit.'
     PowerShellVersion = '5.1'
-    FunctionsToExport = @('ConvertTo-DiscoveryDatasets','Get-DiscoveryModuleMetadata','Invoke-DiscoveryCollection','Test-DiscoveryPrerequisites')
+    FunctionsToExport = @('ConvertTo-DiscoveryDatasets','Get-DiscoveryFollowUpQuestions','Get-DiscoveryModuleMetadata','Get-ShareDeepScanStats','Get-ShareMigrationFlags','Get-ShareRootAclSummary','Invoke-DiscoveryCollection','Test-DiscoveryPrerequisites')
     CmdletsToExport   = @()
     VariablesToExport = @()
     AliasesToExport   = @()

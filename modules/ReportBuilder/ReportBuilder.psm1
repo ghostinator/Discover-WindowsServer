@@ -94,6 +94,8 @@ function Get-RbClientHeadlines {
     foreach ($f in (Get-RbSeverityOrderedFindings -Context $Context)) {
         if ($f.Severity -notin @('Critical','High')) { continue }
         if ([string]::IsNullOrWhiteSpace($f.Title)) { continue }
+        # A rule can mark itself clientSafe:false (e.g. SMTP relay evidence that names hosts in its title).
+        if ($f.PSObject.Properties['ClientSafe'] -and $f.ClientSafe -eq $false) { continue }
         if (-not $seen.Add([string]$f.Title)) { continue }
         $out.Add([pscustomobject]@{
             Topic    = [string]$f.Category
@@ -239,25 +241,56 @@ function Write-InternalMarkdownReport {
     }
     if ($findings.Count -eq 0) { [void]$sb.AppendLine('_No findings were produced. On a populated server this is itself suspicious - check `evidence\logs\limitations.txt`._'); [void]$sb.AppendLine('') }
 
-    # --- 5..n dataset-backed sections
+    # --- 5..n dataset-backed sections. Numbered as they are written, so adding one never
+    # leaves a gap or a duplicate number. A value is a dataset name or @{ Dataset; Filter }.
     $sections = [ordered]@{
-        '5. Migration complexity rubric'   = 'MigrationComplexity'
-        '6. Decommission readiness'        = 'DecommissionReadiness'
-        '7. Scream test plan'              = 'ScreamTestPlan'
-        '8. Dependency map'                = 'DependencyGraph'
-        '9. Work-breakdown inputs'         = 'WbsInputs'
-        '10. Application validation matrix'= 'ApplicationValidationMatrix'
-        '11. Patch posture'                = 'UpdatePosture'
-        '12. Hybrid identity / cloud attachment' = 'HybridIdentity'
-        '13. Time synchronisation'         = 'TimeSync'
-        '14. Security posture'             = 'SecurityPosture'
-        '15. Licensing indicators'         = 'Licensing'
-        '16. Vendor agents'                = 'VendorAgents'
-        '17. User-context dependencies'    = 'MappedDrives'
+        'Migration complexity rubric'   = 'MigrationComplexity'
+        'Decommission readiness'        = 'DecommissionReadiness'
+        'Decommission states'           = 'DecommissionStates'
+        'Scream test plan'              = 'ScreamTestPlan'
+        'Server identity, resources and workload footprint' = 'WorkloadProfile'
+        'Dependency map'                = 'DependencyGraph'
+        'Work-breakdown inputs'         = 'WbsInputs'
+        'Application validation matrix' = 'ApplicationValidationMatrix'
+        'Application stacks (Sage, Actian, ...)' = 'AppStackSummary'
+        'Application stack evidence'    = 'AppStackEvidence'
+        'SQL Server summary'            = 'SqlServerSummary'
+        'SQL instances'                 = 'SqlInstances'
+        'SQL databases'                 = 'SqlDatabases'
+        'ODBC dependencies (system DSNs)' = 'OdbcDsns'
+        'ODBC dependencies (per-user DSNs)' = 'UserOdbcDsns'
+        'IIS sites'                     = 'IisSites'
+        'IIS bindings'                  = 'IisBindings'
+        'IIS application pools'         = 'IisAppPools'
+        'Exchange server'               = 'ExchangeServer'
+        'Exchange receive connectors'   = 'ExchangeReceiveConnectors'
+        'SMTP relay assessment'         = 'SmtpRelayAssessment'
+        'SMTP relay clients'            = 'SmtpRelayClients'
+        'File shares and migration readiness' = @{ Dataset = 'SmbShares'; Filter = { $_.IsUserShare } }
+        'File share deep scan'          = 'NtfsAclSummary'
+        'Printers'                      = 'Printers'
+        'Print summary'                 = 'PrintServerSummary'
+        'Entra Connect'                 = 'EntraConnectDetail'
+        'Domain controllers'            = 'AdDomainControllers'
+        'FSMO roles'                    = 'AdFsmoRoles'
+        'DHCP summary'                  = 'DhcpServerSummary'
+        'Time synchronisation'          = 'TimeSync'
+        'Non-Microsoft services'        = @{ Dataset = 'Services'; Filter = { $_.IsNonMicrosoftAutoStart } }
+        'Non-Microsoft scheduled tasks' = @{ Dataset = 'ScheduledTasks'; Filter = { [string]$_.TaskPath -notlike '\Microsoft\*' } }
+        'Backup products'               = 'BackupDiscovery'
+        'Vendor, monitoring and security agents' = 'VendorAgents'
+        'Patch posture'                 = 'UpdatePosture'
+        'Hybrid identity / cloud attachment' = 'HybridIdentity'
+        'Security posture'              = 'SecurityPosture'
+        'Licensing indicators'          = 'Licensing'
+        'User-context dependencies'     = 'MappedDrives'
     }
+    $num = 5
     foreach ($h in $sections.Keys) {
-        $rows = Get-RbRows -Context $Context -Name $sections[$h]
-        [void]$sb.AppendLine(('## {0}' -f $h))
+        $entry = $sections[$h]
+        $rows = Get-RbRows -Context $Context -Name $(if ($entry -is [System.Collections.IDictionary]) { [string]$entry.Dataset } else { [string]$entry })
+        if ($entry -is [System.Collections.IDictionary] -and $entry.Filter) { $rows = @($rows | Where-Object $entry.Filter) }
+        [void]$sb.AppendLine(('## {0}. {1}' -f $num, $h)); $num++
         [void]$sb.AppendLine('')
         if ($rows.Count -gt 0) { [void]$sb.AppendLine((ConvertTo-MarkdownTable -Rows $rows)) }
         else { [void]$sb.AppendLine('_No data - the producing module did not run, or found nothing._') }
@@ -265,19 +298,25 @@ function Write-InternalMarkdownReport {
     }
 
     # --- unknowns / limitations / scope
-    [void]$sb.AppendLine('## 18. Unknowns that matter')
+    [void]$sb.AppendLine(('## {0}. Unknowns that matter (open questions)' -f $num)); $num++
     [void]$sb.AppendLine('')
     if (@($Context.Unknowns).Count -gt 0) { [void]$sb.AppendLine((ConvertTo-MarkdownTable -Rows $Context.Unknowns -Columns @('Unknown','WhyItMatters','RecommendedValidationQuestion','Module'))) }
     else { [void]$sb.AppendLine('_No unknowns recorded._') }
     [void]$sb.AppendLine('')
 
-    [void]$sb.AppendLine('## 19. Collection limitations')
+    [void]$sb.AppendLine(('## {0}. Follow-up questions' -f $num)); $num++
+    [void]$sb.AppendLine('')
+    if (@($Context.FollowUpQuestions).Count -gt 0) { foreach ($q in @($Context.FollowUpQuestions)) { [void]$sb.AppendLine(('- [{0}] {1}' -f $q.Category, $q.Question)) } }
+    else { [void]$sb.AppendLine('_No follow-up questions generated._') }
+    [void]$sb.AppendLine('')
+
+    [void]$sb.AppendLine(('## {0}. Collection limitations' -f $num)); $num++
     [void]$sb.AppendLine('')
     if (@($Context.Limitations).Count -gt 0) { [void]$sb.AppendLine((ConvertTo-MarkdownTable -Rows $Context.Limitations -Columns @('Module','Message','Impact','Reason'))) }
     else { [void]$sb.AppendLine('_No limitations recorded._') }
     [void]$sb.AppendLine('')
 
-    [void]$sb.AppendLine('## 20. Draft scope language')
+    [void]$sb.AppendLine(('## {0}. Draft scope language' -f $num)); $num++
     [void]$sb.AppendLine('')
     [void]$sb.AppendLine('> DRAFT. Requires review before it goes near a statement of work.')
     [void]$sb.AppendLine('')
@@ -368,6 +407,19 @@ function Get-RbClientModel {
             ForEach-Object { [pscustomobject]@{ 'Cloud connection' = [string]$_.Component; 'What it does' = [string]$_.Role; 'Why it matters' = [string]$_.WhyItMatters } })
     }
 
+    # Application stacks: name and role only - versions and evidence IDs stay in the internal report.
+    $stacks = @()
+    if (Test-RbClientSafeDataset -Context $Context -Name 'AppStackSummary') {
+        $stackRows = Get-RbRows -Context $Context -Name 'AppStackSummary'
+        $stacks = @($stackRows | ForEach-Object { [pscustomobject]@{ Application = [string]$_.Stack; 'Role of this server' = [string]$_.HostRole } })
+    }
+    # Decommission states that apply, as plain next steps (never a 'safe to switch off' statement).
+    $states = @()
+    if (Test-RbClientSafeDataset -Context $Context -Name 'DecommissionStates') {
+        $stateRows = Get-RbRows -Context $Context -Name 'DecommissionStates'
+        $states = @($stateRows | Where-Object { $_.Applies } | ForEach-Object { [pscustomobject]@{ 'Before this server can be retired' = [string]$_.State; 'Next step' = [string]$_.NextStep } })
+    }
+
     $backupKnown = (Test-RbClientSafeDataset -Context $Context -Name 'BackupDiscovery')
     $backups = @()
     if ($backupKnown) {
@@ -420,6 +472,8 @@ function Get-RbClientModel {
         Printers       = $printers
         Vendors        = $vendors
         HybridIdentity = $hybrid
+        AppStacks      = $stacks
+        DecommissionStates = $states
         Backups        = $backups
         BackupDetected = $backupKnown
         Patch          = $patch
@@ -489,6 +543,11 @@ function Write-ClientHtmlReport {
         [void]$sb.AppendLine('<h3>Shared printers</h3>')
         [void]$sb.AppendLine((ConvertTo-HtmlTable -Rows $Model.Printers))
     }
+    if (@($Model.AppStacks).Count -gt 0) {
+        [void]$sb.AppendLine('<h3>Line-of-business application components</h3>')
+        [void]$sb.AppendLine('<p class="muted">Version compatibility between servers and workstations needs confirming with the software vendor before any change.</p>')
+        [void]$sb.AppendLine((ConvertTo-HtmlTable -Rows $Model.AppStacks))
+    }
     if (@($Model.HybridIdentity).Count -gt 0) {
         [void]$sb.AppendLine('<h3>Connections to Microsoft 365 / Azure</h3>')
         [void]$sb.AppendLine((ConvertTo-HtmlTable -Rows $Model.HybridIdentity))
@@ -517,6 +576,11 @@ function Write-ClientHtmlReport {
 
     if ($Model.Patch -and $Model.Patch.PatchingLooksStale) {
         [void]$sb.AppendLine(('<div class="callout"><b>Updates:</b> the most recent update we can see on this server was installed around {0} days ago. If patching is handled by a tool we cannot see, let us know - otherwise this is worth scheduling.</div>' -f (& $e $Model.Patch.DaysSinceNewestHotfix)))
+    }
+
+    if (@($Model.DecommissionStates).Count -gt 0 -and $Context.ProjectType -eq 'Decommission') {
+        [void]$sb.AppendLine('<h2>Before this server is retired</h2>')
+        [void]$sb.AppendLine((ConvertTo-HtmlTable -Rows $Model.DecommissionStates))
     }
 
     [void]$sb.AppendLine('<h2>What we need from you</h2>')
@@ -589,9 +653,11 @@ function Write-ClientMarkdownReport {
         'Business applications we recognised' = $Model.Applications
         'Shared folders'                      = $Model.Shares
         'Shared printers'                     = $Model.Printers
+        'Line-of-business application components' = $Model.AppStacks
         'Connections to Microsoft 365 / Azure'= $Model.HybridIdentity
         'Third-party products installed'      = $Model.Vendors
     }
+    if ($Context.ProjectType -eq 'Decommission') { $tables['Before this server is retired'] = $Model.DecommissionStates }
     foreach ($t in $tables.Keys) {
         if (@($tables[$t]).Count -eq 0) { continue }
         [void]$sb.AppendLine(('### {0}' -f $t))

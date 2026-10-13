@@ -40,7 +40,10 @@ function Invoke-DiscoveryCollection {
     } catch { }
     try {
         foreach ($z in (Get-DnsServerZone -ErrorAction SilentlyContinue)) {
-            $zones.Add([pscustomobject]@{ ZoneName=$z.ZoneName; ZoneType=[string]$z.ZoneType; IsDsIntegrated=$z.IsDsIntegrated; IsReverse=$z.IsReverseLookupZone; DynamicUpdate=[string]$z.DynamicUpdate; IsAutoCreated=$z.IsAutoCreated })
+            # MasterServers: the forwarding targets of a conditional forwarder / secondary zone - IPs a cutover must keep reachable.
+            $masters = ''; try { $masters = ((@($z.MasterServers) | ForEach-Object { [string]$_ }) -join ', ') } catch { }
+            $zones.Add([pscustomobject]@{ ZoneName=$z.ZoneName; ZoneType=[string]$z.ZoneType; IsDsIntegrated=$z.IsDsIntegrated; IsReverse=$z.IsReverseLookupZone; DynamicUpdate=[string]$z.DynamicUpdate; IsAutoCreated=$z.IsAutoCreated
+                MasterServers=$masters; IsConditionalForwarder=[bool]([string]$z.ZoneType -eq 'Forwarder'); RequiresStaticUpdates=[bool]([string]$z.ZoneType -eq 'Primary' -and [string]$z.DynamicUpdate -eq 'None' -and -not $z.IsAutoCreated) })
         }
     } catch { Add-Limitation -Context $Context -Module 'DNS' -Message 'DNS zone enumeration failed.' -Reason $_.Exception.Message | Out-Null }
 

@@ -6,7 +6,7 @@
     CompanyName       = 'Brandon Cook'
     Description       = 'EventLogs collector module for the Windows Server Discovery Toolkit.'
     PowerShellVersion = '5.1'
-    FunctionsToExport = @('ConvertTo-DiscoveryDatasets','Get-AuditPolicySettings','Get-DiscoveryModuleMetadata','Invoke-DiscoveryCollection','Test-DiscoveryPrerequisites')
+    FunctionsToExport = @('ConvertTo-DiscoveryDatasets','Get-AuditPolicySettings','Get-DiscoveryModuleMetadata','Get-EventProviderArea','Invoke-DiscoveryCollection','Test-DiscoveryPrerequisites')
     CmdletsToExport   = @()
     VariablesToExport = @()
     AliasesToExport   = @()

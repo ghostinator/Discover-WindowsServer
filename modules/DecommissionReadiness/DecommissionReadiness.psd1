@@ -6,7 +6,7 @@
     CompanyName       = 'Brandon Cook'
     Description       = 'Decommission readiness assessment and scream-test planning synthesis.'
     PowerShellVersion = '5.1'
-    FunctionsToExport = @('Get-DiscoveryModuleMetadata','Test-DiscoveryPrerequisites','Invoke-DiscoverySynthesis','Build-DecommissionReadiness','Build-ScreamTestPlan')
+    FunctionsToExport = @('Build-DecommissionReadiness','Build-DecommissionStates','Build-ScreamTestPlan','Get-DiscoveryModuleMetadata','Invoke-DiscoverySynthesis','Test-DiscoveryPrerequisites')
     CmdletsToExport   = @()
     VariablesToExport = @()
     AliasesToExport   = @()

@@ -11,7 +11,7 @@
         'Ensure-Directory','ConvertTo-SafeFileName','Test-IsAdministrator','Test-IsSystem',
         'Get-CommandAvailable','Get-ModuleAvailable','Get-RegistryValueSafe','Test-RegistryPathSafe',
         'Invoke-CimSafe','Invoke-CommandLineSafe','Invoke-WindowsPowerShellJson','Test-WindowsPowerShellModule','Convert-BytesToGB','Convert-BytesToMB','Normalize-DateTime',
-        'Test-SensitiveKeyLabel','Redact-SensitiveValue','Write-Log','Write-SectionStatus',
+        'Test-SensitiveKeyLabel','Redact-SensitiveValue','ConvertTo-OdbcDsnRecord','Set-OdbcCrossChecks','Write-Log','Write-SectionStatus',
         'New-DiscoveryDataset','New-DiscoveryFinding','New-ScopingRisk','New-FollowUpQuestion','New-DependencyEdge',
         'Add-DataSet','Add-Finding','Add-Limitation','Add-Unknown','Add-FollowUpQuestion','Add-ScopeLanguage',
         'Add-DependencyEdge','Add-ModuleStatus','Update-StatusFile'

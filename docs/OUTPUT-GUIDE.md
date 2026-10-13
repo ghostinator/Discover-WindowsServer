@@ -69,6 +69,27 @@ Exported like every other dataset (one CSV and one JSON each under `evidence\dat
 `HyperVDisks` (disk type, sizes, parent chain, switch mapping, checkpoint count). Field lists are
 in [FIELD-USAGE.md](FIELD-USAGE.md).
 
+Added in 1.1.0 (migration scoping - see [MIGRATION-SCOPING.md](MIGRATION-SCOPING.md)):
+`SqlServices`, `SqlComponents`, `SqlServerSummary`, `SqlDatabaseFiles`, `OdbcDrivers`,
+`IisAuthentication`, `ExchangeServer`, `ExchangeServices`, `ExchangeReceiveConnectors`,
+`ExchangeSendConnectors`, `ExchangeAcceptedDomains`, `ExchangeRemoteDomains`, `ExchangeHybrid`,
+`ExchangeCertificates`, `ExchangeQueues`, `ExchangeLogSettings`, `ExchangeIisApplications`,
+`ExchangeShares`, `SmtpRelayClients`, `SmtpRelayAssessment`, `SmtpConnections`,
+`AppStackEvidence`, `AppStackSummary`, `ShareRootAcl`, `SmbSessions`, `ShareActivity`,
+`AzureFileSync`, `PrintActivity`, `PrinterConnections`, `PrintServerSummary`,
+`EntraConnectDetail`, `AdDomainControllers`, `AdFsmoRoles`, `AdReplicationSummary`,
+`AdHealthChecks`, `DhcpOptions`, `DhcpFailover`, `DhcpServerSummary`, `EventLogDependencyAreas`,
+`HyperVUnattachedFiles`, `ExternalHypervisorVMs`, `ExternalHypervisorDatastores`,
+`ExternalHypervisorFiles`, `HypervisorInventorySummary`, `WorkloadProfile`, `DecommissionStates`.
+Existing datasets only gained columns (appended; none renamed or removed): for example
+`SqlInstances` (ports, service/agent state, classification, connection status), `OdbcDsns`
+(description, path, flags; credential attributes excluded), `IisSites`/`IisBindings`/`IisAppPools`,
+`SmbShares` (migration flags), `NtfsAclSummary` (oldest/newest write, long paths, access denied,
+reparse/offline counts, scan status), `Printers`, `DomainContext` (DC count, all-FSMO, replication,
+SYSVOL), `DnsZones`, `DhcpScopes` (lease counts), and `ScopingRisks`/`wbs-inputs.csv`
+(`RiskCategory`, `ClientSafe`, `SourceServer` / `RiskCategory`, `Confidence`, `SourceModule`).
+`-CopyExchangeRawLogs` adds `evidence\raw\exchange-logs\` (privacy-sensitive).
+
 ## The two reports
 
 ### `reports\internal-engineering-report.html` (and `.md`)
@@ -131,6 +152,14 @@ button) writes to `<engagement>\rollup\`:
   sidebar nav, scrollable/filterable tables. Same layout and behavior as
   `internal-dashboard-report.html`, applied to the whole engagement instead of one server.
 * **`fleet-rollup.json`** - the combined model as data, for scripting against.
+* **`fleet-correlations.json`** (1.1.0+) - cross-server correlations, also rendered as sections in
+  both rollup reports: application stacks across servers (engine hosts, client hosts, RDS hosts
+  with clients, version assessment, candidate source/target servers, cited evidence IDs), target
+  capacity comparison (with `-TargetServers`), workload profiles, SQL instances, ODBC and UNC
+  references to other fleet servers, DNS references to retiring servers, SMTP relay clients,
+  domain controllers, Entra Connect servers, and hypervisor guest/host relationships. Retiring
+  servers come from `-RetiringServers`, or default to runs made with `-ProjectType Decommission`.
+  Runs from older toolkit versions are merged too; missing datasets simply contribute nothing.
 * **`fleet-rollup-risks.csv`** - the combined risk register only, one row per finding
   across every server, for pivoting in Excel.
 * **`fleet-client-summary.html`** (and `.md`) - the client-safe fleet equivalent of

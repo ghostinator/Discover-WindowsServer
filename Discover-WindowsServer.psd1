@@ -1,6 +1,6 @@
 @{
     RootModule        = 'Discover-WindowsServer.psm1'
-    ModuleVersion     = '1.0.1'
+    ModuleVersion     = '1.1.0'
     GUID              = '5bdced7d-d9b8-4d26-a073-8dc010b90c8f'
     Author            = 'Brandon Cook'
     CompanyName       = 'Brandon Cook'
@@ -24,9 +24,11 @@
     # than hand-typed, so it can't silently drift from what's really there.
     FileList          = @(
         'Discover-WindowsServer.psm1','Discover-WindowsServer.psd1','Discover-WindowsServer.ps1',
-        'Discover-WindowsServer-GUI.ps1','LICENSE','README.md','HISTORY.md',
+        'Discover-WindowsServer-GUI.ps1','LICENSE','README.md','HISTORY.md','CHANGELOG.md',
         'modules\ActiveDirectory\ActiveDirectory.psd1',
         'modules\ActiveDirectory\ActiveDirectory.psm1',
+        'modules\ApplicationStacks\ApplicationStacks.psd1',
+        'modules\ApplicationStacks\ApplicationStacks.psm1',
         'modules\Applications\Applications.psd1',
         'modules\Applications\Applications.psm1',
         'modules\AzureHybrid\AzureHybrid.psd1',
@@ -53,10 +55,14 @@
         'modules\EventLogs\EventLogs.psm1',
         'modules\EvidenceManifest\EvidenceManifest.psd1',
         'modules\EvidenceManifest\EvidenceManifest.psm1',
+        'modules\ExchangeSmtp\ExchangeSmtp.psd1',
+        'modules\ExchangeSmtp\ExchangeSmtp.psm1',
         'modules\FileShares\FileShares.psd1',
         'modules\FileShares\FileShares.psm1',
         'modules\HyperV\HyperV.psd1',
         'modules\HyperV\HyperV.psm1',
+        'modules\HypervisorInventory\HypervisorInventory.psd1',
+        'modules\HypervisorInventory\HypervisorInventory.psm1',
         'modules\IIS\IIS.psd1',
         'modules\IIS\IIS.psm1',
         'modules\Licensing\Licensing.psd1',
@@ -99,6 +105,8 @@
         'modules\VendorAgents\VendorAgents.psm1',
         'modules\WindowsUpdate\WindowsUpdate.psd1',
         'modules\WindowsUpdate\WindowsUpdate.psm1',
+        'modules\WorkloadProfile\WorkloadProfile.psd1',
+        'modules\WorkloadProfile\WorkloadProfile.psm1',
         'tools\Compare-DiscoveryRuns.ps1',
         'tools\Install-LegacyPrerequisites.ps1',
         'tools\Invoke-FleetDiscovery.ps1',
@@ -108,6 +116,7 @@
         'tools\Send-DiscoveryOutput.ps1',
         'tools\Verify-DiscoveryRun.ps1',
         'config\application-fingerprints.json',
+        'config\application-stacks.json',
         'config\compliance-lenses.json',
         'config\deep.discovery.json',
         'config\default.discovery.json',
@@ -121,7 +130,7 @@
             Tags         = @('Discovery','WindowsServer','MSP','Scoping','Migration','ReadOnly')
             LicenseUri   = 'https://github.com/ghostinator/Discover-WindowsServer/blob/main/LICENSE'
             ProjectUri   = 'https://github.com/ghostinator/Discover-WindowsServer'
-            ReleaseNotes = '1.0.1: GUI fixes - the Branding accent-color swatch now shows the saved color on launch, and the Delivery tab note names the real archive. See HISTORY.md for the full history.'
+            ReleaseNotes = '1.1.0: migration-scoping round - Exchange/SMTP relay evidence (never asserts non-use), config-driven application stacks (Sage 300 CRE, Actian/Pervasive), workload/target-capacity profiles, hypervisor inventory import, deeper SQL/ODBC/IIS/file/print/Entra Connect/AD/DHCP discovery, normalized risk categories, fleet correlations (stack versions, source/target capacity, references to retiring servers). New opt-in switches: -CopyExchangeRawLogs, -IncludeSensitiveEvidence. See CHANGELOG.md.'
         }
     }
 }

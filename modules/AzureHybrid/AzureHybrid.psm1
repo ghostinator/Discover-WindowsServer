@@ -22,10 +22,10 @@
 
 function Get-DiscoveryModuleMetadata {
     [pscustomobject]@{
-        ModuleName='AzureHybrid'; DisplayName='Hybrid Identity & Cloud Attachment'; Category='Identity'; Version='1.0.0'
+        ModuleName='AzureHybrid'; DisplayName='Hybrid Identity, Entra Connect & Cloud Attachment'; Category='Identity'; Version='1.0.0'
         DefaultInFast=$true; DefaultInDeep=$true; RequiresAdmin=$false; RequiresDomainContext=$false
         RequiresRole=$null; EstimatedImpact='Low'; CanRunAsSystem=$true
-        ProducesDatasets=@('HybridIdentity','AzureAttachment')
+        ProducesDatasets=@('HybridIdentity','AzureAttachment','EntraConnectDetail')
         ProducesRisks=$true; ProducesFollowUpQuestions=$true; SupportsDeepMode=$true; SupportsComplianceLens=$true
     }
 }
@@ -65,6 +65,67 @@ function Test-AhEvidence {
         if ($rp -and (Test-RegistryPathSafe $rp)) { $ev += ('registry:' + $rp) }
     }
     return @{ Found = [bool]($ev.Count -gt 0); Evidence = ($ev -join '; '); Running = $running }
+}
+
+function Get-EntraConnectDetail {
+    <#
+        One row describing the Entra Connect (Azure AD Connect) sync server, or $null when there is
+        no sign of one. Reads only: service state, installed version, the ADSync module's Get-*
+        cmdlets (scheduler/staging, last run results) in a time-bounded Windows PowerShell child,
+        an LDAP lookup for the Seamless SSO computer account, and Application-log error counts.
+        Connector configuration, credentials and the sync database are never touched.
+    #>
+    param([object]$Context)
+    $svcRows = @(if ($Context.DataSets.Contains('Services')) { @($Context.DataSets['Services'].Rows) } else { @() })
+    $appRows = @(if ($Context.DataSets.Contains('InstalledApplications')) { @($Context.DataSets['InstalledApplications'].Rows) } else { @() })
+    $sync = @($svcRows | Where-Object { $_.Name -eq 'ADSync' } | Select-Object -First 1)
+    $app = @($appRows | Where-Object { $_.DisplayName -match '(?i)^Microsoft (Azure AD|Entra) Connect( Sync)?$|^Microsoft Azure AD Connect synchronization services$' } | Sort-Object DisplayVersion -Descending | Select-Object -First 1)
+    $pta = @($svcRows | Where-Object { $_.Name -match '(?i)^AzureADConnectAuthenticationAgent' })
+    $updater = @($svcRows | Where-Object { $_.Name -match '(?i)^AzureADConnectAgentUpdater' })
+    $health = @($svcRows | Where-Object { $_.Name -match '(?i)^AzureADConnectHealth' } | ForEach-Object { [string]$_.Name })
+    if ($sync.Count -eq 0 -and $app.Count -eq 0 -and $pta.Count -eq 0) { return $null }
+
+    $row = [ordered]@{
+        SyncEngineInstalled=[bool]($sync.Count -gt 0 -or $app.Count -gt 0)
+        ProductName=$(if ($app.Count) { [string]$app[0].DisplayName } else { '' }); Version=$(if ($app.Count) { [string]$app[0].DisplayVersion } else { '' })
+        SyncServiceState=$(if ($sync.Count) { [string]$sync[0].Status } else { 'NotInstalled' }); SyncServiceStartMode=$(if ($sync.Count) { [string]$sync[0].StartMode } else { '' })
+        SyncServiceAccount=$(if ($sync.Count) { [string]$sync[0].StartName } else { '' })
+        StagingModeEnabled='Unknown'; SchedulerEnabled='Unknown'; NextSyncUtc=''; LastRunProfile=''; LastRunResult=''; LastRunTime=''
+        PassThroughAgentPresent=[bool]($pta.Count -gt 0); AgentUpdaterPresent=[bool]($updater.Count -gt 0); HealthAgents=($health -join ', ')
+        SeamlessSsoAccountFound='Unknown'; SyncErrorEventsInWindow=$null; EventWindowDays=$null; DetailSource=''
+    }
+    if ($sync.Count -gt 0) {
+        $res = Invoke-WindowsPowerShellJson -TimeoutSeconds 90 -Script @'
+Import-Module ADSync -ErrorAction Stop
+$s = Get-ADSyncScheduler
+$r = $null; try { $r = Get-ADSyncRunProfileResult -NumberRequested 1 | Select-Object -First 1 } catch { }
+[pscustomobject]@{ Staging=[bool]$s.StagingModeEnabled; Enabled=[bool]$s.SyncCycleEnabled; Next=[string]$s.NextSyncCycleStartTimeInUTC
+  Profile=$(if ($r) { [string]$r.RunProfileName } else { '' }); Result=$(if ($r) { [string]$r.Result } else { '' }); Ended=$(if ($r) { [string]$r.EndDate } else { '' }) }
+'@
+        if ($res) {
+            $row.StagingModeEnabled = [string]$res.Staging; $row.SchedulerEnabled = [string]$res.Enabled; $row.NextSyncUtc = [string]$res.Next
+            $row.LastRunProfile = [string]$res.Profile; $row.LastRunResult = [string]$res.Result; $row.LastRunTime = [string]$res.Ended
+            $row.DetailSource = 'ADSync module (Get-ADSyncScheduler)'
+        } else {
+            Add-Limitation -Context $Context -Module 'AzureHybrid' -Message 'Entra Connect is installed but the ADSync module could not be read (needs elevation and ADSyncAdmins membership); staging mode and last sync are unknown.' | Out-Null
+            $row.DetailSource = 'Service and registry only'
+        }
+    }
+    # Seamless SSO creates the AZUREADSSOACC computer account in AD; an LDAP read any domain member can do.
+    try {
+        $searcher = [adsisearcher]'(&(objectCategory=computer)(sAMAccountName=AZUREADSSOACC$))'
+        $searcher.PageSize = 1; $searcher.ClientTimeout = [TimeSpan]::FromSeconds(15)
+        $row.SeamlessSsoAccountFound = [string][bool]$searcher.FindOne()
+    } catch { }
+    try {
+        $days = [int]$Context.Parameters['EventLogDays']; if ($days -le 0) { $days = 14 }
+        $row.EventWindowDays = $days
+        $ev = @()
+        try { $ev = @(Get-WinEvent -FilterHashtable @{ LogName='Application'; ProviderName=@('ADSync','Directory Synchronization'); Level=@(1,2); StartTime=(Get-Date).AddDays(-$days) } -MaxEvents 2000 -ErrorAction Stop) }
+        catch { if ($_.FullyQualifiedErrorId -notlike 'NoMatchingEventsFound*') { throw } }
+        $row.SyncErrorEventsInWindow = $ev.Count
+    } catch { }
+    return [pscustomobject]$row
 }
 
 function Invoke-DiscoveryCollection {
@@ -200,7 +261,10 @@ function Invoke-DiscoveryCollection {
         }
     } catch { }
 
-    return ,@{ HybridIdentity=@($hybrid); AzureAttachment=@($attach) }
+    $entra = @()
+    try { $d = Get-EntraConnectDetail -Context $Context; if ($d) { $entra = @($d) } } catch { Add-Limitation -Context $Context -Module 'AzureHybrid' -Message 'Entra Connect detail collection failed.' -Reason $_.Exception.Message | Out-Null }
+
+    return ,@{ HybridIdentity=@($hybrid); AzureAttachment=@($attach); EntraConnectDetail=@($entra) }
 }
 
 function ConvertTo-DiscoveryDatasets {
@@ -209,6 +273,7 @@ function ConvertTo-DiscoveryDatasets {
     $get = { param($k) if ($RawData[$k]) { @($RawData[$k]) } else { @() } }
     Add-DataSet -Context $Context -Name 'HybridIdentity'  -Description 'Hybrid identity components (Entra Connect, AD FS, connectors).' -Rows (& $get 'HybridIdentity')  -Visibility 'Both'     -SourceModule 'AzureHybrid' | Out-Null
     Add-DataSet -Context $Context -Name 'AzureAttachment' -Description 'Cloud join state and cloud endpoint attachment indicators.'     -Rows (& $get 'AzureAttachment') -Visibility 'Internal' -SourceModule 'AzureHybrid' | Out-Null
+    Add-DataSet -Context $Context -Name 'EntraConnectDetail' -Description 'Entra Connect sync server detail (version, service, staging mode, agents, Seamless SSO indicator).' -Rows (& $get 'EntraConnectDetail') -Visibility 'Internal' -SourceModule 'AzureHybrid' | Out-Null
 }
 
 function Get-DiscoveryFollowUpQuestions {
@@ -221,4 +286,4 @@ function Get-DiscoveryFollowUpQuestions {
     } catch { }
 }
 
-Export-ModuleMember -Function 'Get-DiscoveryModuleMetadata','Test-DiscoveryPrerequisites','Invoke-DiscoveryCollection','ConvertTo-DiscoveryDatasets','Get-DiscoveryFollowUpQuestions','Test-AhEvidence'
+Export-ModuleMember -Function 'Get-DiscoveryModuleMetadata','Test-DiscoveryPrerequisites','Invoke-DiscoveryCollection','ConvertTo-DiscoveryDatasets','Get-DiscoveryFollowUpQuestions','Test-AhEvidence','Get-EntraConnectDetail'

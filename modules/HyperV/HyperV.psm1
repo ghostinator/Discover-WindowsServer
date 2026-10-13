@@ -8,7 +8,7 @@ function Get-DiscoveryModuleMetadata {
         ModuleName='HyperV'; DisplayName='Hyper-V'; Category='Virtualization'; Version='1.0.0'
         DefaultInFast=$true; DefaultInDeep=$true; RequiresAdmin=$true; RequiresDomainContext=$false
         RequiresRole='Hyper-V'; EstimatedImpact='Low'; CanRunAsSystem=$true
-        ProducesDatasets=@('HyperVHost','HyperVVirtualSwitches','HyperVVMs','HyperVDisks','HyperVReplication')
+        ProducesDatasets=@('HyperVHost','HyperVVirtualSwitches','HyperVVMs','HyperVDisks','HyperVReplication','HyperVUnattachedFiles')
         ProducesRisks=$true; ProducesFollowUpQuestions=$true; SupportsDeepMode=$true; SupportsComplianceLens=$false
     }
 }
@@ -60,7 +60,27 @@ function Invoke-DiscoveryCollection {
             try { $r = Get-VMReplication -VMName $v.Name -ErrorAction SilentlyContinue; if ($r) { $repl.Add([pscustomobject]@{ VMName=$v.Name; State=[string]$r.State; Health=[string]$r.Health; Mode=[string]$r.ReplicationMode }) } } catch { }
         }
     } catch { Add-Limitation -Context $Context -Module 'HyperV' -Message 'VM enumeration failed.' -Reason $_.Exception.Message | Out-Null }
-    return ,@{ HyperVHost=@($host_); HyperVVirtualSwitches=@($sw); HyperVVMs=@($vms); HyperVDisks=@($disks); HyperVReplication=@($repl) }
+
+    # Disk/ISO files in the host's default VM folders that no registered VM references: leftovers
+    # from deleted VMs, or VMs registered elsewhere. Two levels deep, 2000 files max, metadata only.
+    $unattached = [System.Collections.Generic.List[object]]::new()
+    try {
+        $attached = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        foreach ($d in $disks) { if ($d.Path) { [void]$attached.Add([string]$d.Path) } }
+        $isoInUse = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        try { foreach ($dv in @(Get-VMDvdDrive -VMName * -ErrorAction SilentlyContinue)) { if ($dv.Path) { [void]$isoInUse.Add([string]$dv.Path) } } } catch { }
+        $roots = @($host_ | ForEach-Object { $_.VirtualHardDiskPath; $_.VirtualMachinePath } | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Unique)
+        $seen = 0
+        foreach ($root in $roots) {
+            foreach ($f in @(Get-ChildItem -LiteralPath $root -File -Recurse -Depth 1 -Include '*.vhd','*.vhdx','*.avhd','*.avhdx','*.iso' -ErrorAction SilentlyContinue)) {
+                if (++$seen -gt 2000) { Add-Limitation -Context $Context -Module 'HyperV' -Message 'Unattached-disk scan stopped at 2000 files.' | Out-Null; break }
+                $isIso = ($f.Extension -ieq '.iso')
+                if ((-not $isIso -and $attached.Contains($f.FullName)) -or ($isIso -and $isoInUse.Contains($f.FullName))) { continue }
+                $unattached.Add([pscustomobject]@{ Path=$f.FullName; FileType=$f.Extension.TrimStart('.').ToUpperInvariant(); SizeGB=(Convert-BytesToGB $f.Length); LastWriteTime=(Normalize-DateTime $f.LastWriteTime); IsIso=$isIso; Reason=$(if ($isIso) { 'ISO not mounted by any VM' } else { 'Disk not attached to any registered VM' }) })
+            }
+        }
+    } catch { }
+    return ,@{ HyperVHost=@($host_); HyperVVirtualSwitches=@($sw); HyperVVMs=@($vms); HyperVDisks=@($disks); HyperVReplication=@($repl); HyperVUnattachedFiles=@($unattached) }
 }
 
 function ConvertTo-DiscoveryDatasets {
@@ -72,6 +92,7 @@ function ConvertTo-DiscoveryDatasets {
     Add-DataSet -Context $Context -Name 'HyperVVMs'             -Description 'Virtual machine inventory.'-Rows (& $get 'HyperVVMs')             -Visibility 'Both'     -SourceModule 'HyperV' | Out-Null
     Add-DataSet -Context $Context -Name 'HyperVDisks'           -Description 'VM virtual disks.'         -Rows (& $get 'HyperVDisks')           -Visibility 'Internal' -SourceModule 'HyperV' | Out-Null
     Add-DataSet -Context $Context -Name 'HyperVReplication'     -Description 'VM replication status.'    -Rows (& $get 'HyperVReplication')     -Visibility 'Internal' -SourceModule 'HyperV' | Out-Null
+    Add-DataSet -Context $Context -Name 'HyperVUnattachedFiles' -Description 'VHD/VHDX/ISO files in the host default VM folders not referenced by any registered VM.' -Rows (& $get 'HyperVUnattachedFiles') -Visibility 'Internal' -SourceModule 'HyperV' | Out-Null
 }
 
 function Get-DiscoveryFollowUpQuestions {

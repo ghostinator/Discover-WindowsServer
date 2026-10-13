@@ -16,6 +16,31 @@ caught a real instance of the exact bug it exists to catch, in
 neither branch's own `@()` wrap protected the outer if/else assignment itself. Fixed by wrapping
 the whole if/else expression in one `@()` instead of wrapping each branch separately.)
 
+## Migration-scoping round (1.1.0, 2026-10-13) - plan as executed, and what is still open
+
+Plan: extend the collectors that already own an area (SQL/ODBC, IIS, FileShares, PrintServer,
+AzureHybrid/Entra Connect, ActiveDirectory/DNS/DHCP, EventLogs, HyperV, DecommissionReadiness);
+add collectors only where nothing existed (ExchangeSmtp, ApplicationStacks, WorkloadProfile,
+HypervisorInventory); keep every addition read-only, role-gated and fail-soft; add normalized
+`RiskCategory`/`ClientSafe`/`SourceServer` to findings without renaming any column; correlate in
+the fleet rollup. Done and live-verified on the lab DC (Deep, Decommission: 0 errors/warnings,
+verifier all PASS, no seeded secret) and in a mixed 1.0/1.1 fleet rollup. Guide:
+[docs/MIGRATION-SCOPING.md](docs/MIGRATION-SCOPING.md).
+
+Still open from that round:
+- **Exchange live test.** The lab has no Exchange server; the Exchange path is covered by fixture
+  logs and mocked cmdlets only. First real Exchange run: check connector/log-setting field shapes
+  from `Get-ExchangeCmdletInventory` and the anonymous-relay `Get-ADPermission` probe's speed.
+- **Sage / Actian live test.** Stack patterns follow published product names; confirm against a
+  real Sage 300 CRE install (server, client, Pervasive license service, Timberline Data driver).
+- **GPO references to server names / UNC paths** were not added: the toolkit has no safe GPO
+  content inspection today (only `gpresult` names). Needs a design for reading GPO XML read-only.
+- **Fleet pass-through of opt-in switches** (`-CopyExchangeRawLogs`, `-IncludeSensitiveEvidence`,
+  `-HypervisorInventoryPath`) is deliberately not implemented: raw email metadata from many servers
+  in one pull is the wrong default. Revisit only on request.
+- **Native VMware collection** is out of scope by design (would need a hypervisor credential);
+  import an export with `-HypervisorInventoryPath` instead.
+
 ---
 
 ## Open items, in priority order

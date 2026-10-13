@@ -360,6 +360,8 @@ function Build-ContextListDatasets {
             Evidence=$f.Evidence; WhyItMattersForScoping=$f.WhyItMattersForScoping
             PotentialProjectImpact=(@($f.PotentialProjectImpact) -join '; '); SuggestedValidationQuestion=$f.SuggestedValidationQuestion
             ComplianceRelevance=(@($f.ComplianceRelevance) -join '; '); SourceModule=$f.SourceModule; SourceDataset=$f.SourceDataset
+            # Appended after the original columns so existing CSV/JSON consumers keep working.
+            RiskCategory=$f.RiskCategory; ClientSafe=$f.ClientSafe; SourceServer=$f.SourceServer
         }
     }
     Add-DataSet -Context $Context -Name 'ScopingRisks' -Description 'All findings (scoping risks).' -Rows @($findRows) -Visibility 'Internal' -SourceModule 'RiskEngine' | Out-Null
@@ -570,7 +572,7 @@ function Write-SpecialCsvOutputs {
     $root = Get-OutputTargetRoot -Context $Context
     $delim = Get-CsvDelimiter -Context $Context
     try { Write-ObjectListToCsv -Rows (Get-DatasetRowsOrEmpty -Context $Context -Name 'DependencyGraph') -Path (Join-Path $root 'dependency-graph.csv') -Delimiter $delim -Columns @('SourceType','SourceName','DependencyType','Target','Evidence','Confidence','SourceDataset','ProjectImpact','ValidationQuestion') | Out-Null } catch { }
-    try { Write-ObjectListToCsv -Rows (Get-DatasetRowsOrEmpty -Context $Context -Name 'WbsInputs') -Path (Join-Path $root 'wbs-inputs.csv') -Delimiter $delim -Columns @('Finding','Subject','PriorityForProject','SuggestedWBSArea','LaborDriver','Complexity','Evidence','SuggestedScopeNote','ValidationQuestion') | Out-Null } catch { }
+    try { Write-ObjectListToCsv -Rows (Get-DatasetRowsOrEmpty -Context $Context -Name 'WbsInputs') -Path (Join-Path $root 'wbs-inputs.csv') -Delimiter $delim -Columns @('Finding','Subject','PriorityForProject','SuggestedWBSArea','LaborDriver','Complexity','Evidence','SuggestedScopeNote','ValidationQuestion','RiskCategory','Confidence','SourceModule') | Out-Null } catch { }
     try { Write-ObjectListToCsv -Rows (Get-DatasetRowsOrEmpty -Context $Context -Name 'ApplicationValidationMatrix') -Path (Join-Path $root 'application-validation-matrix.csv') -Delimiter $delim | Out-Null } catch { }
 }
 

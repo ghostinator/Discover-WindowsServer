@@ -131,6 +131,16 @@ function Get-DemoServerPersona {
             $datasets['Certificates']      = @([pscustomobject]@{ Subject = 'CN=demo-sql01.corp.local'; NotAfter = '2026-11-15'; Thumbprint = 'AB12CD34'; ExpiringSoon = $true; HasPrivateKey = $true })
             $datasets['Volumes']           = @([pscustomobject]@{ DriveLetter = 'D'; PercentFree = 18; FreeGB = 180; SizeGB = 1000 })
             $datasets['Licensing']         = @([pscustomobject]@{ Indicator = 'SQL Server Standard - core-based licensing'; Evidence = 'registry' })
+            # Migration-scoping examples (1.1.0): an application engine on this server and its footprint.
+            $datasets['SqlServerSummary']  = @([pscustomobject]@{ SqlInstanceCount = 2; ProductVersions = 'SQL Server 2019'; MultipleSqlVersions = $false; MultipleApplicationInstances = $false; TotalDatabaseSizeGB = 140; AnyBuiltInServiceAccount = $false; AnyDomainServiceAccount = $true })
+            $datasets['AppStackEvidence']  = @(
+                [pscustomobject]@{ EvidenceId = 'EV-0001'; Stack = 'Sage 300 Construction and Real Estate'; Component = 'Sage 300 CRE server components'; Role = 'Server'; Version = '24.1.1'; Confidence = 'Confirmed'; SourceDataset = 'InstalledApplications'; Item = 'Sage 300 Construction and Real Estate Server'; Bitness = '' }
+                [pscustomobject]@{ EvidenceId = 'EV-0002'; Stack = 'Actian Zen / Pervasive PSQL'; Component = 'Actian / Pervasive server engine'; Role = 'Server'; Version = '13.31'; Confidence = 'Confirmed'; SourceDataset = 'InstalledApplications'; Item = 'Actian PSQL v13 Server Engine'; Bitness = '' }
+            )
+            $datasets['AppStackSummary']   = @(
+                [pscustomobject]@{ Stack = 'Sage 300 Construction and Real Estate'; HostRole = 'Server'; Confidence = 'Confirmed'; ServerVersions = '24.1.1'; ClientVersions = ''; LocalServerClientVersionsDiffer = $false; RdsHostWithClient = $false; EvidenceIds = 'EV-0001' }
+            )
+            $datasets['WorkloadProfile']   = @([pscustomobject]@{ ComputerName = 'DEMO-SQL01'; TotalMemoryGB = 32; LogicalProcessors = 8; FreeCapacityGB = 180; TotalCapacityGB = 1000; SqlInstanceCount = 2; SqlDataGB = 140; ShareDataGB = $null; ShareSizeUnknown = $false; UserShareCount = 0; ApplicationStacks = 'Sage 300 Construction and Real Estate (Server)' })
             $edges.Add((New-DemoEdge 'SQL Instance' 'DEMO-SQL01\PROD' 'RunsAs' 'CORP\svc-sqlprod' 'Services'))
             $edges.Add((New-DemoEdge 'ODBC DSN' 'ERP' 'ConnectsTo' 'DEMO-SQL01\PROD' 'OdbcDsns'))
         }
@@ -175,6 +185,10 @@ function Get-DemoServerPersona {
             $datasets['Volumes']           = @([pscustomobject]@{ DriveLetter = 'C'; PercentFree = 3; FreeGB = 6; SizeGB = 200 })
             $datasets['Certificates']      = @([pscustomobject]@{ Subject = 'CN=legacy01.corp.local'; NotAfter = '2026-10-01'; Thumbprint = 'DEAD00BEEF'; ExpiringSoon = $true; HasPrivateKey = $true })
             $datasets['ListeningPorts']    = @([pscustomobject]@{ LocalPort = 8080; Process = 'legacyapp'; ServiceName = 'LegacyAppSvc' })
+            # An older application client and an SMTP relay nobody documented (1.1.0 examples).
+            $datasets['AppStackEvidence']  = @([pscustomobject]@{ EvidenceId = 'EV-0001'; Stack = 'Sage 300 Construction and Real Estate'; Component = 'Sage 300 CRE client'; Role = 'Client'; Version = '23.1.0'; Confidence = 'Confirmed'; SourceDataset = 'InstalledApplications'; Item = 'Sage 300 Construction and Real Estate'; Bitness = '' })
+            $datasets['SmtpRelayClients']  = @([pscustomobject]@{ ClientIp = '10.0.0.61'; ConnectorIds = 'IIS SMTP service'; ClientIdentity = 'COPIER-2F'; MessagesInTracking = 0; ProtocolSessions = 42; AcceptedInProtocolLog = 40; RejectedResponses = 0; FirstSeen = '2026-09-02 08:10:00'; LastSeen = '2026-09-27 16:45:00'; Classification = 'Confirmed active SMTP client'; Confidence = 'Confirmed' })
+            $datasets['SmtpRelayAssessment'] = @([pscustomobject]@{ Status = 'Confirmed active SMTP client'; Conditions = 'Confirmed active SMTP client'; Recommendation = 'Active relay dependency found; Migrate device or application to another SMTP method'; UsageProvenUnused = $false; EvidenceCoverageDays = 30; ConfirmedClients = 1; PossibleClients = 0; IisSmtpServicePresent = $true })
             $edges.Add((New-DemoEdge 'Service' 'LegacyAppSvc' 'RunsAs' 'CORP\svc-legacy' 'Services'))
         }
         'HyperVHost' {
@@ -192,6 +206,7 @@ function Get-DemoServerPersona {
             $datasets['PerformanceSnapshot'] = @([pscustomobject]@{ CpuPercent = 78 })
             $datasets['SecurityPosture']   = @([pscustomobject]@{ Smb1Enabled = $false; RdpEnabledNoNla = $false; AnyAvOrEdrDetected = $true; LocalAdminCount = 3 })
             $datasets['Volumes']           = @([pscustomobject]@{ DriveLetter = 'D'; PercentFree = 14; FreeGB = 420; SizeGB = 3000 })
+            $datasets['WorkloadProfile']   = @([pscustomobject]@{ ComputerName = $computerName; TotalMemoryGB = 256; LogicalProcessors = 48; FreeCapacityGB = 420; TotalCapacityGB = 3000; SqlInstanceCount = 0; SqlDataGB = $null; ShareDataGB = $null; ShareSizeUnknown = $false; UserShareCount = 0; ApplicationStacks = '' })
             foreach ($vm in $vmRows) { $edges.Add((New-DemoEdge 'Server' $computerName 'HostsVM' $vm.Name 'HyperVVMs')) }
         }
     }

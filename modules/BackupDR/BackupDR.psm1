@@ -27,7 +27,8 @@ function Invoke-DiscoveryCollection {
         @{ Product='Azure Backup (MARS)'; Pattern='(?i)Microsoft Azure Recovery Services|OBEngine' },
         @{ Product='Cove/N-able'; Pattern='(?i)\bcove\b|N-able|SolarWinds Backup' }, @{ Product='Carbonite'; Pattern='(?i)carbonite' },
         @{ Product='Windows Server Backup'; Pattern='(?i)Windows Server Backup|wbengine' }, @{ Product='Commvault'; Pattern='(?i)commvault' },
-        @{ Product='Unitrends'; Pattern='(?i)unitrends' }, @{ Product='Barracuda'; Pattern='(?i)barracuda' }, @{ Product='Rubrik'; Pattern='(?i)rubrik' }
+        @{ Product='Unitrends'; Pattern='(?i)unitrends' }, @{ Product='Barracuda'; Pattern='(?i)barracuda' }, @{ Product='Rubrik'; Pattern='(?i)rubrik' },
+        @{ Product='Veritas Backup Exec'; Pattern='(?i)Backup Exec|BackupExec' }
     )
     try {
         $svcRows = @(if ($Context.DataSets.Contains('Services')) { @($Context.DataSets['Services'].Rows) } else { @() })
