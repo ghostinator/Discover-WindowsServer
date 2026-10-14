@@ -73,3 +73,10 @@ existing collectors, reports, CLI, GUI and fleet rollup. Full guide:
 ### Fixes found while building this
 - Share names such as `Data_old` were not recognised by word-boundary regexes (underscore is a word
   character); repadmin `>60 days` deltas broke a whitespace-delimited parse.
+- Found by the first live Exchange run: the collector loaded the
+  `Microsoft.Exchange.Management.Powershell.Support` snap-in (it sorted first) instead of `.SnapIn`.
+  Every cmdlet failed silently, and the run still reported `CmdletsAvailable=true` with empty
+  connector, domain and queue datasets. The snap-in is now picked by name, and a snap-in without the
+  Exchange cmdlets is reported as a limitation.
+- Connect-only SMTP traffic from loopback or the server's own addresses (Exchange health probes and
+  proxy hops) no longer appears as "Possible SMTP client requires identification".

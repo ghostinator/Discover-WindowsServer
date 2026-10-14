@@ -283,7 +283,7 @@ function Merge-SmtpRelayEvidence {
         'Confirmed active SMTP client' when messages were accepted from it (tracking RECEIVE events
         or 250 2.6.0 responses); 'Possible SMTP client requiring validation' when it only connected.
     #>
-    param([object[]]$TrackingRows = @(), [object[]]$ProtocolRows = @())
+    param([object[]]$TrackingRows = @(), [object[]]$ProtocolRows = @(), [string[]]$SelfIps = @())
     $byIp = [ordered]@{}
     foreach ($r in @($TrackingRows) + @($ProtocolRows)) { if ($r -and $r.ClientIp -and -not $byIp.Contains([string]$r.ClientIp)) { $byIp[[string]$r.ClientIp] = $true } }
     $out = foreach ($ip in $byIp.Keys) {
@@ -293,6 +293,8 @@ function Merge-SmtpRelayEvidence {
         $acc = [int](($p | Measure-Object -Property AcceptedMessages -Sum).Sum)
         $times = @(@($t.FirstSeen) + @($p.FirstSeen) + @($t.LastSeen) + @($p.LastSeen) | Where-Object { $_ } | Sort-Object)
         $confirmed = ($msgs -gt 0 -or $acc -gt 0)
+        # Connect-only traffic from this server itself is Exchange's own health probes and proxy hops.
+        if (-not $confirmed -and ($ip -in $SelfIps -or $ip -match '^(127\.|::1$)')) { continue }
         [pscustomobject]@{
             ClientIp=$ip
             ConnectorIds=((@($t.ConnectorId) + @($p.ConnectorId) | Where-Object { $_ } | Select-Object -Unique) -join ', ')
@@ -367,12 +369,16 @@ function Get-ExchangeCmdletInventory {
     #>
     param([int]$TimeoutSeconds = 240)
     $script = @'
-$sn = Get-PSSnapin -Registered -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'Microsoft.Exchange.Management.PowerShell.*' } | Sort-Object Name -Descending | Select-Object -First 1
+# By name, not sort order: '.Support' (diagnostics, no Get-* cmdlets) sorts above '.SnapIn' (2013+).
+$reg = @(Get-PSSnapin -Registered -ErrorAction SilentlyContinue)
+$sn = foreach ($n in 'SnapIn','E2010','Admin') { $reg | Where-Object { $_.Name -eq "Microsoft.Exchange.Management.PowerShell.$n" } }
+$sn = @($sn)[0]
 if (-not $sn) { return [pscustomobject]@{ CmdletsAvailable=$false; Error='Exchange management snap-in is not registered on this server' } }
 Add-PSSnapin $sn.Name -ErrorAction Stop
 $me = $env:COMPUTERNAME
 function J($x) { (@($x) | Where-Object { $null -ne $_ } | ForEach-Object { [string]$_ }) -join '; ' }
 function T($sb) { try { & $sb } catch { @() } }
+if (-not (Get-Command Get-ExchangeServer -ErrorAction SilentlyContinue)) { return [pscustomobject]@{ CmdletsAvailable=$false; Error=("snap-in {0} loaded but exposes no Exchange cmdlets" -f $sn.Name) } }
 $srv = T { Get-ExchangeServer -Identity $me -ErrorAction Stop }
 $ts = T { if (Get-Command Get-TransportService -ErrorAction SilentlyContinue) { Get-TransportService -Identity $me -ErrorAction Stop } else { Get-TransportServer -Identity $me -ErrorAction Stop } }
 $fe = T { Get-FrontendTransportService -Identity $me -ErrorAction Stop }
@@ -497,7 +503,8 @@ function Invoke-DiscoveryCollection {
     $pSum = Get-SmtpReceiveProtocolSummary -Files @($prt.InWindow | ForEach-Object { $_.FullName }) -Since $since -Sensitive $sensitive -TimeBudgetSeconds $budget
     $iSum = Get-IisSmtpLogSummary -Files @($iisSmtp.InWindow | ForEach-Object { $_.FullName }) -Since $since -Sensitive $sensitive
     foreach ($s in @($tSum, $pSum)) { if ($s.Truncated) { Add-Limitation -Context $Context -Module 'ExchangeSmtp' -Message ("SMTP log analysis stopped at its {0}s time budget; client counts are a lower bound." -f $budget) -Impact 'Partial SMTP evidence' | Out-Null } }
-    $clients = Merge-SmtpRelayEvidence -TrackingRows $tSum.Rows -ProtocolRows (@($pSum.Rows) + @($iSum.Rows))
+    $selfIps = @(try { [System.Net.Dns]::GetHostAddresses($env:COMPUTERNAME) | ForEach-Object { [string]$_ } } catch { })
+    $clients = Merge-SmtpRelayEvidence -TrackingRows $tSum.Rows -ProtocolRows (@($pSum.Rows) + @($iSum.Rows)) -SelfIps $selfIps
     foreach ($c in $clients) {
         if ($c.Confidence -eq 'Confirmed') { Add-DependencyEdge -Context $Context -SourceType 'SMTP client' -SourceName $c.ClientIp -DependencyType 'RelaysMailThrough' -Target $env:COMPUTERNAME -Evidence ("{0} message(s) in tracking, {1} accepted in protocol log ({2})" -f $c.MessagesInTracking, $c.AcceptedInProtocolLog, $c.ConnectorIds) -Confidence 'Confirmed' -SourceDataset 'SmtpRelayClients' -ProjectImpact 'Cutover Complexity' -ValidationQuestion 'What device or application is at this address, and how will it send mail after this server is retired?' | Out-Null }
     }

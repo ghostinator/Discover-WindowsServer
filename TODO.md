@@ -28,9 +28,10 @@ verifier all PASS, no seeded secret) and in a mixed 1.0/1.1 fleet rollup. Guide:
 [docs/MIGRATION-SCOPING.md](docs/MIGRATION-SCOPING.md).
 
 Still open from that round:
-- **Exchange live test.** The lab has no Exchange server; the Exchange path is covered by fixture
-  logs and mocked cmdlets only. First real Exchange run: check connector/log-setting field shapes
-  from `Get-ExchangeCmdletInventory` and the anonymous-relay `Get-ADPermission` probe's speed.
+- ~~Exchange live test~~ Done 2026-10-13 on a lab Exchange SE RTM server with two anonymous relay
+  connectors (one Verbose, one logging None) and real relay mail. All datasets and findings matched
+  ground truth after two fixes (snap-in choice, self-traffic noise; see CHANGELOG). Still untested
+  live: Exchange 2013/2016/2019, DAG members, Edge, hybrid, and a tools-only management box.
 - **Sage / Actian live test.** Stack patterns follow published product names; confirm against a
   real Sage 300 CRE install (server, client, Pervasive license service, Timberline Data driver).
 - **GPO content inspection (done 2026-10-13):** verified live against an unlinked lab test GPO

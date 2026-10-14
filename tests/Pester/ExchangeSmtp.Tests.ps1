@@ -114,6 +114,17 @@ Describe 'Get-SmtpReceiveProtocolSummary - parsing by connector and remote endpo
         ($m | Where-Object ClientIp -eq 'fe80::9').Classification   | Should -Be 'Possible SMTP client requiring validation'
         ($m | Where-Object ClientIp -eq 'fe80::9').Recommendation   | Should -Be 'Client IP requires identification'
     }
+
+    It 'drops connect-only traffic from the server itself but keeps a local app that sent mail' {
+        $p = @(
+            [pscustomobject]@{ ClientIp='127.0.0.1'; Sessions=5; AcceptedMessages=0 }
+            [pscustomobject]@{ ClientIp='10.0.0.9';  Sessions=9; AcceptedMessages=0 }
+            [pscustomobject]@{ ClientIp='10.0.0.9x'; Sessions=1; AcceptedMessages=0 }
+        )
+        $t = @([pscustomobject]@{ ClientIp='10.0.0.9'; MessagesReceived=0 }, [pscustomobject]@{ ClientIp='127.0.0.2'; MessagesReceived=4 })
+        $m = @(Merge-SmtpRelayEvidence -TrackingRows $t -ProtocolRows $p -SelfIps @('10.0.0.9'))
+        ($m.ClientIp -join ',') | Should -Be '127.0.0.2,10.0.0.9x'
+    }
 }
 
 Describe 'Get-SmtpRelayAssessment - never treats missing evidence as non-use' {
