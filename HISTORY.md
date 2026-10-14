@@ -36,6 +36,25 @@ Decisions locked with the owner:
 
 ---
 
+## 1.1.0 (2026-10-14) - migration scoping, GPO inspection, first live Exchange run
+
+Feature summary: [CHANGELOG.md](CHANGELOG.md). Found while testing it live:
+
+- **Exchange (lab Exchange SE RTM server, two anonymous relay connectors, real relay mail).** The
+  cmdlet inventory loaded the `...Powershell.Support` snap-in (it sorts above `.SnapIn`). Every
+  Get-* cmdlet failed silently while the run said `CmdletsAvailable=true` and returned empty
+  connector, domain and queue datasets. The fixture tests could not catch this: they mock the
+  cmdlets. Fixed by picking the snap-in by name. Loopback and the server's own IP (health probes,
+  proxy hops) were listed as "possible SMTP clients" and are now dropped when they only connect.
+  After both fixes every dataset and finding matched the lab's ground truth, including the client
+  behind the no-logging connector (found through message tracking).
+- **GUI, first hands-on use.** (1) Dot-sourced tools set `$ErrorActionPreference='Stop'`, so any
+  handler error closed the window. A dispatcher handler now shows and logs it. (2) Started from
+  pwsh 7, the 5.1 GUI inherited PS7's module folders, could not load `Get-Credential`, and Fleet's
+  "Set credential..." did nothing. It was diagnosed by attaching to the live GUI process over its
+  named pipe and reading `$Error`. Fixed by dropping PS7-only folders from `PSModulePath` at startup.
+
+Gate: 247 static checks + 637 Pester tests, green on 5.1 and 7.
 ## 1.0.1 (2026-10-06) - GUI fixes found in the README screenshots
 
 | Defect | Fix | Verified |

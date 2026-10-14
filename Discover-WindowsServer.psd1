@@ -130,7 +130,7 @@
             Tags         = @('Discovery','WindowsServer','MSP','Scoping','Migration','ReadOnly')
             LicenseUri   = 'https://github.com/ghostinator/Discover-WindowsServer/blob/main/LICENSE'
             ProjectUri   = 'https://github.com/ghostinator/Discover-WindowsServer'
-            ReleaseNotes = '1.1.0: migration-scoping round - Exchange/SMTP relay evidence (never asserts non-use), config-driven application stacks (Sage 300 CRE, Actian/Pervasive), workload/target-capacity profiles, hypervisor inventory import, deeper SQL/ODBC/IIS/file/print/Entra Connect/AD/DHCP discovery, normalized risk categories, fleet correlations (stack versions, source/target capacity, references to retiring servers). New opt-in switches: -CopyExchangeRawLogs, -IncludeSensitiveEvidence. See CHANGELOG.md.'
+            ReleaseNotes = '1.1.0: migration-scoping round - Exchange/SMTP relay evidence (never asserts non-use), config-driven application stacks (Sage 300 CRE, Actian/Pervasive), workload/target-capacity profiles, hypervisor inventory import, deeper SQL/ODBC/IIS/file/print/Entra Connect/AD/DHCP discovery, normalized risk categories, fleet correlations (stack versions, source/target capacity, references to retiring servers). Read-only Group Policy content inspection (server references in drive maps, printers, scripts, folder redirection; GPP passwords flagged, never read). Verified against a live Exchange SE server. GUI fixes: errors no longer close the window; Set credential works when started from PowerShell 7. New opt-in switches: -CopyExchangeRawLogs, -IncludeSensitiveEvidence. See CHANGELOG.md.'
         }
     }
 }

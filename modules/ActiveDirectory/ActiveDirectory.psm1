@@ -210,14 +210,14 @@ function Get-GpoContentInspection {
             $guid = ([string]$g.Properties['name'][0]).ToUpperInvariant(); $display = [string]$g.Properties['displayname'][0]; $sysvol = [string]$g.Properties['gpcfilesyspath'][0]
             $flags = 0; [void][int]::TryParse([string]$g.Properties['flags'][0], [ref]$flags)
             $linked = @(if ($links.ContainsKey($guid)) { $links[$guid] } else { @() })
-            $pwd = $false; $gpoRefCount = 0; $readable = $true
+            $hasGppPwd = $false; $gpoRefCount = 0; $readable = $true
             try {
                 foreach ($f in @(Get-ChildItem -LiteralPath $sysvol -Recurse -File -ErrorAction Stop | Where-Object { $_.Length -le 5MB -and ($_.Name -match '(?i)\.xml$|^(ps)?scripts\.ini$|^fdeploy\d*\.ini$|^registry\.pol$') })) {
                     if ($sw.Elapsed.TotalSeconds -ge $TimeBudgetSeconds) { $capped = $true; break }
                     $scope = if ($f.FullName -match '(?i)\\User\\') { 'User' } else { 'Computer' }
                     try {
                         $r = Get-GpoFileReferences -Path $f.FullName -Scope $scope -Context $Context
-                        if ($r.HasStoredPassword) { $pwd = $true }
+                        if ($r.HasStoredPassword) { $hasGppPwd = $true }
                         foreach ($x in $r.References) {
                             $hostLabel = ($x.ReferencedHost -split '\.')[0]
                             $refs.Add([pscustomobject]@{
@@ -233,7 +233,7 @@ function Get-GpoContentInspection {
                 GpoName=$display; GpoGuid=$guid; LinkCount=$linked.Count; IsLinked=[bool]$linked.Count; LinkedTo=((@($linked | Select-Object -First 5)) -join '; ')
                 UserSettingsDisabled=[bool]($flags -band 1); ComputerSettingsDisabled=[bool]($flags -band 2)
                 WhenChanged=(Normalize-DateTime $g.Properties['whenchanged'][0]); SysvolReadable=$readable
-                ServerReferenceCount=$gpoRefCount; HasGppPasswords=$pwd
+                ServerReferenceCount=$gpoRefCount; HasGppPasswords=$hasGppPwd
             })
         }
     } catch { return $null }
