@@ -39,6 +39,13 @@
 [CmdletBinding()]
 param()
 
+# Started from PowerShell 7, Windows PowerShell inherits PS7's module folders and autoloads PS7's
+# Microsoft.PowerShell.Security, which fails to load in 5.1 - so Get-Credential silently did
+# nothing (seen live). Drop PS7-only folders (not ...\WindowsPowerShell\...) before anything loads.
+if ($PSVersionTable.PSEdition -ne 'Core') {
+    $env:PSModulePath = (@($env:PSModulePath -split ';' | Where-Object { $_ -and $_ -notmatch '(?i)\\(Program Files\\PowerShell\\(\d[^\\]*\\)?|Documents\\PowerShell\\)Modules\\?$' }) -join ';')
+}
+
 function Build-DiscoveryArgumentList {
     <#
         Pure: builds the Discover-WindowsServer.ps1 argument list from plain values, with no
@@ -561,6 +568,18 @@ $driftScript    = Join-Path $scriptRoot 'tools\Compare-DiscoveryRuns.ps1'
 $reader = New-Object System.Xml.XmlNodeReader $xaml
 $window = [Windows.Markup.XamlReader]::Load($reader)
 
+# The dot-sourced tools above set $ErrorActionPreference = 'Stop' in this scope, so any error in
+# any event handler used to escape ShowDialog and close the whole window (seen live: a credential
+# prompt after a Deep run). Show it and keep the window instead; the log keeps the full detail.
+$window.Dispatcher.Add_UnhandledException({
+    param($s, $e)
+    $e.Handled = $true
+    $err = $e.Exception; while ($err.InnerException) { $err = $err.InnerException }
+    $log = Join-Path $env:TEMP 'Discover-WindowsServer-GUI-errors.log'
+    try { Add-Content -LiteralPath $log -Value ("{0:s} {1}" -f (Get-Date), $e.Exception.ToString()) -ErrorAction Stop } catch { }
+    [void][System.Windows.MessageBox]::Show("That action failed:`n`n$($err.Message)`n`nDetails: $log", 'Discover-WindowsServer', 'OK', 'Error')
+})
+
 # Pull every named element into a flat table instead of one $window.FindName(...) call per
 # control - this file has ~30 named controls and repeating FindName that many times invites
 # a typo that only shows up at runtime.
@@ -717,7 +736,7 @@ $script:FleetEngagementFolder = $null
 $script:FleetRunProcess = $null
 
 $ui['SetFleetCredentialButton'].Add_Click({
-    $cred = Get-Credential -Message 'Domain admin credential for AD query + remote runs (e.g. CORP\Administrator). Held in memory only for this session - never saved to disk.'
+    $cred = try { Get-Credential -Message 'Domain admin credential for AD query + remote runs (e.g. CORP\Administrator). Held in memory only for this session - never saved to disk.' } catch { if ($_.Exception -isnot [System.Management.Automation.ParameterBindingException]) { throw }; $null }   # only Cancel is quiet
     if ($cred) {
         $script:FleetCredential = $cred
         $ui['FleetCredentialStatusText'].Text = "Set: $($cred.UserName)"
@@ -1037,7 +1056,7 @@ $ui['SetCredentialButton'].Add_Click({
         [System.Windows.MessageBox]::Show('Enter a credential name first.', 'Discover-WindowsServer', 'OK', 'Warning') | Out-Null
         return
     }
-    $cred = Get-Credential -UserName 'ApiKey' -Message "Credential for '$name' (username is ignored for API-key providers - put the key in the password field)"
+    $cred = try { Get-Credential -UserName 'ApiKey' -Message "Credential for '$name' (username is ignored for API-key providers - put the key in the password field)" } catch { if ($_.Exception -isnot [System.Management.Automation.ParameterBindingException]) { throw }; $null }
     if ($cred) {
         Save-DeliveryCredential -Name $name -Credential $cred
         $ui['CredentialStatusText'].Text = "Saved '$name' (encrypted, this Windows user/machine only)."

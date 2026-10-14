@@ -176,7 +176,7 @@ Unsupported software, Hypervisor decommissioning, Incomplete discovery, Group Po
 
 | Symptom | Cause / fix |
 |---|---|
-| `Exchange cmdlets unavailable` | Run elevated on the Exchange server with the management tools installed; the snap-in loads in a child Windows PowerShell even under PowerShell 7. |
+| `Exchange cmdlets unavailable` | Run elevated on the Exchange server with the management tools installed, as an account in an Exchange role group (verified live with an Organization Management member; a plain local admin cannot read the Exchange configuration). The snap-in loads in a child Windows PowerShell even under PowerShell 7. |
 | SMTP status `Logs aged out` | Message-tracking/protocol-log retention is shorter than `-ExchangeLogDays`; ask the client for an observation window. |
 | SQL `ConnectionStatus=Failed` | The run account has no SQL login; run as a sysadmin-mapped account or have a DBA supply the inventory. |
 | `NtfsAclSummary.ScanStatus=Incomplete` | Access denied on some folders or the per-share time budget was hit; raise `fileScanShareTimeoutSeconds` in `config\default.discovery.json`. |

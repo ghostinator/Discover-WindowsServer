@@ -78,5 +78,11 @@ existing collectors, reports, CLI, GUI and fleet rollup. Full guide:
   Every cmdlet failed silently, and the run still reported `CmdletsAvailable=true` with empty
   connector, domain and queue datasets. The snap-in is now picked by name, and a snap-in without the
   Exchange cmdlets is reported as a limitation.
+- GUI, found in the first hands-on test: the delivery and fleet scripts it loads set
+  `$ErrorActionPreference = 'Stop'`, so any error in a button handler closed the whole window. Errors
+  now show a message box and are logged to `%TEMP%\Discover-WindowsServer-GUI-errors.log`.
+- GUI started from PowerShell 7: Windows PowerShell inherited PS7's module folders, could not load
+  `Get-Credential`, and the Fleet tab's "Set credential..." button did nothing. PS7-only folders are
+  removed from the module path at startup; cancelling a credential prompt stays silent.
 - Connect-only SMTP traffic from loopback or the server's own addresses (Exchange health probes and
   proxy hops) no longer appears as "Possible SMTP client requires identification".

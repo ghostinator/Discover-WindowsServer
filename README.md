@@ -16,7 +16,7 @@ work.
   report at the end. See [Fleet discovery](#fleet-discovery).
 - **33 collectors**, from AD, DNS, DHCP, SQL, ODBC, IIS, Exchange/SMTP relay, Hyper-V and
   clustering to file shares, printers, Entra Connect, line-of-business application stacks,
-  certificates, backup agents and licensing, plus a **risk engine with 174 rules** and an
+  certificates, backup agents and licensing, plus a **risk engine with 176 rules** and an
   **A–F readiness score** per server.
 - **Migration and decommission scoping:** SMTP relay clients from existing logs (never "unused"
   just because no evidence was found), application server/client version correlation across a
@@ -148,9 +148,10 @@ command underneath, so results are identical to the command line.
 | `Start-DiscoverWindowsServerGui` | `.\Discover-WindowsServer-GUI.ps1` from its folder (or right-click it → **Run with PowerShell**) |
 
 Needs a desktop (Desktop Experience or the workstation you RDP from), not Server Core. Start
-it from an elevated PowerShell. It relaunches itself in the threading mode WPF needs, so no
+it from an elevated PowerShell. Windows PowerShell or a PowerShell 7 prompt both work. It relaunches itself in the threading mode WPF needs, so no
 `-Sta` switch is required. **Preview (-WhatIf)** shows what a run would do without running it;
-**Run** starts the scan.
+**Run** starts the scan. If a button's action fails, the window stays open and shows the error;
+details go to `%TEMP%\Discover-WindowsServer-GUI-errors.log`.
 
 What each tab does:
 
@@ -305,7 +306,7 @@ collectors you pick. Every mode is read-only.
 `HyperVRefresh`, `Decommission`, `AzureMigration`, `AppMigration`, `CMMCReadiness`. The chosen type's
 most relevant findings lead the report. **Compliance lenses:** `CMMC` or `GeneralSecurity`.
 
-**Risk engine:** 174 rules turn the collected data into findings, each with a severity, a
+**Risk engine:** 176 rules turn the collected data into findings, each with a severity, a
 confidence level, its evidence, a normalized risk category (SMTP relay, Database migration, DNS
 cutover, ...) and whether it is safe for the client report. Each server gets an **A–F readiness score**. See
 [docs/RISK-SCORING.md](docs/RISK-SCORING.md).
