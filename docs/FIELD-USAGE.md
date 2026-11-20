@@ -77,7 +77,7 @@ Output                                 ->  CSV / JSON / workbook / HTML / Markdo
 | `ExchangeReceiveConnectors` | ExchangeSmtp | `Name`, `Bindings`, `RemoteIPRanges`, `ProtocolLoggingLevel`, `AnonymousRelay` |
 | `SmtpRelayClients` | ExchangeSmtp | `ClientIp`, `ClientIdentity`, `ConnectorIds`, `MessagesInTracking`(number), `AcceptedInProtocolLog`(number), `Classification`, `Confidence` |
 | `SmtpRelayAssessment` | ExchangeSmtp | `Status`, `Conditions`, `Recommendation`, `UsageProvenUnused`(bool, always false), `EvidenceCoverageDays`(number) |
-| `RoleUsage` | RoleUsage | `Role`, `Verdict` (Active / No activity in window / Unknown), `Evidence`, `EvidenceSource`, `LastActivity`, `WindowDays`(number), `Confidence` |
+| `RoleUsage` | RoleUsage | `Role`, `Verdict` (Active / Light/Occasional / No activity in window / Unknown), `Evidence`, `EvidenceSource`, `LastActivity`, `WindowDays`(number), `Confidence` |
 | `SmtpConnections` | ExchangeSmtp | `Direction`, `RemoteAddress`, `RemotePort`, `Process` |
 | `AppStackEvidence` | ApplicationStacks | `EvidenceId`, `Stack`, `Component`, `Role`, `Version`, `Confidence`, `SourceDataset`, `SourceField` |
 | `AppStackSummary` | ApplicationStacks | `Stack`, `HostRole`, `ServerVersions`, `ClientVersions`, `LocalServerClientVersionsDiffer`(bool), `RdsHostWithClient`(bool), `EvidenceIds`, `Confidence` |

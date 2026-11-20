@@ -31,11 +31,16 @@ function Test-DiscoveryPrerequisites {
     [pscustomobject]@{ ModuleName='RoleUsage'; CanRun=$true; Status='Ready'; Reason=''; Limitations=@() }
 }
 # Pure: $Count = $null means "no usable evidence source" (log off, unreadable, not collected).
-# ponytail: any event counts as Active; add a Light/Occasional band when real thresholds are agreed.
+# -Recent/-ActiveAt: optional Light/Occasional band. Some activity overall but fewer than ActiveAt
+# events in the recent slice is "Light/Occasional" (only roles that pass -Recent get the band).
+# ponytail: one flat threshold per role (CA: 5 per 90 days); tune per role if clients disagree.
 function Get-RoleUsageVerdict {
-    param($Count, [int]$WindowDays = 0)
+    param($Count, [int]$WindowDays = 0, $Recent = $null, [int]$ActiveAt = 5)
     if ($null -eq $Count) { return 'Unknown' }
-    if ([int]$Count -gt 0) { return 'Active' }
+    if ([int]$Count -gt 0) {
+        if ($null -ne $Recent -and [int]$Recent -lt $ActiveAt) { return 'Light/Occasional' }
+        return 'Active'
+    }
     if ($WindowDays -gt 0) { return 'No activity in window' }
     return 'Unknown'
 }
@@ -66,7 +71,7 @@ function Build-RoleUsage {
         $q = ($cau.Status -eq 'Queried'); $win = [int]$cau.LookbackDays
         $count = if ($q) { [int]$cau.IssuedInLookback } else { $null }
         $ev = if ($q) { "$($cau.IssuedInLookback) cert(s) issued in $win days ($($cau.Issued30d) in 30d, $($cau.Issued90d) in 90d). Templates: $($cau.TopTemplates)" } else { "CA database not queried: $($cau.Reason)" }
-        $rows.Add((New-RoleUsageRow 'Certification Authority' (Get-RoleUsageVerdict $count $win) $ev 'CertificateAuthorityUsage' $cau.LastIssued $win $(if ($q) { 'Likely' } else { 'Unknown' })))
+        $rows.Add((New-RoleUsageRow 'Certification Authority' (Get-RoleUsageVerdict $count $win $(if ($q) { [int]$cau.Issued90d } else { $null }) 5) $ev 'CertificateAuthorityUsage' $cau.LastIssued $win $(if ($q) { 'Likely' } else { 'Unknown' })))
     }
 
     # ---- DHCP: active scopes + lease counts (point-in-time; lease event history is a later phase) ----
