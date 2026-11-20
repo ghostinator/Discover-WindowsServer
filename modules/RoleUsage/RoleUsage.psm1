@@ -81,8 +81,14 @@ function Build-RoleUsage {
             $rows.Add((New-RoleUsageRow 'DHCP Server' 'No activity in window' 'No active scopes: role is installed but not serving leases.' 'DhcpServerSummary' '' 0 'Likely'))
         } else {
             $leases = [int](@(& $get 'DhcpScopes' | Where-Object { $_.State -eq 'Active' }) | Measure-Object LeasesInUse -Sum).Sum
-            $v = if ($leases -gt 0) { 'Active' } else { 'Unknown' }
-            $rows.Add((New-RoleUsageRow 'DHCP Server' $v "$leases lease(s) in use across active scopes (point in time)." 'DhcpScopes' '' 0 'Likely'))
+            $la = @(& $get 'DhcpLeaseActivity') | Select-Object -First 1
+            if ($la -and $la.Status -eq 'Queried') {
+                $n = [int]$la.NewLeases + [int]$la.Renewals + [int]$la.Releases; $win = [int][math]::Floor([double]$la.CoverageDays)
+                $rows.Add((New-RoleUsageRow 'DHCP Server' (Get-RoleUsageVerdict $n $win $n 5) "$($la.NewLeases) new, $($la.Renewals) renewed, $($la.Releases) released lease(s) in the audit log ($($la.CoverageDays) days of coverage); $leases lease(s) in use now." 'DhcpLeaseActivity' $la.LastLeaseEvent $win 'Likely'))
+            } else {
+                $v = if ($leases -gt 0) { 'Active' } else { 'Unknown' }
+                $rows.Add((New-RoleUsageRow 'DHCP Server' $v "$leases lease(s) in use across active scopes (point in time). Audit log not readable." 'DhcpScopes' '' 0 'Possible'))
+            }
         }
     }
 

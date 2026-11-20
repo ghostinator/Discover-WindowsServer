@@ -6,7 +6,7 @@
     CompanyName       = 'Brandon Cook'
     Description       = 'DHCP collector module for the Windows Server Discovery Toolkit.'
     PowerShellVersion = '5.1'
-    FunctionsToExport = @('ConvertTo-DiscoveryDatasets','Get-DiscoveryModuleMetadata','Invoke-DiscoveryCollection','Test-DhcpPresent','Test-DiscoveryPrerequisites')
+    FunctionsToExport = @('ConvertTo-DhcpLeaseSummary','ConvertTo-DiscoveryDatasets','Get-DiscoveryModuleMetadata','Invoke-DiscoveryCollection','Test-DhcpPresent','Test-DiscoveryPrerequisites')
     CmdletsToExport   = @()
     VariablesToExport = @()
     AliasesToExport   = @()

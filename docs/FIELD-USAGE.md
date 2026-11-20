@@ -90,6 +90,7 @@ Output                                 ->  CSV / JSON / workbook / HTML / Markdo
 | `GpoInventory` | ActiveDirectory | `GpoName`, `GpoGuid`, `IsLinked`(bool), `LinkCount`(number), `ServerReferenceCount`(number), `HasGppPasswords`(bool - presence only, the value is never read into a row) |
 | `GpoServerReferences` | ActiveDirectory | `GpoName`, `GpoGuid`, `GpoLinked`(bool), `Scope`, `SettingType`, `Item`, `Reference`, `ReferencedHost`, `ReferencesThisServer`(bool) |
 | `DhcpServerSummary` | DHCP | `HostsActiveDhcp`(bool), `HasFailover`(bool), `ActiveScopeCount`(number) |
+| `DhcpLeaseActivity` | DHCP | `Status` (Queried/Unavailable), `AuditLogEnabled`(bool), `NewLeases`(number), `Renewals`(number), `Releases`(number), `LastLeaseEvent`, `CoverageDays`(number), `Reason` |
 | `DnsZones` | DNS | `ZoneName`, `IsConditionalForwarder`(bool), `MasterServers`, `RequiresStaticUpdates`(bool) |
 | `HyperVUnattachedFiles` | HyperV | `Path`, `FileType`, `SizeGB` |
 | `HypervisorInventorySummary` | HypervisorInventory | `RunningVMs`(number), `PoweredOffVMs`(number), `CountConflicts`(number), `CountConflictDetail` |
