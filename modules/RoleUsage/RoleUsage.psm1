@@ -60,6 +60,15 @@ function Build-RoleUsage {
         $rows.Add((New-RoleUsageRow 'Print Server' (Get-RoleUsageVerdict $count $win) $ev 'PrintActivity' $last $win $(if ($status -eq 'Enabled') { 'Likely' } else { 'Unknown' })))
     }
 
+    # ---- ADCS: issued-certificate counts from the CA database (Certificates module) ----
+    $cau = @(& $get 'CertificateAuthorityUsage') | Select-Object -First 1
+    if ($cau) {
+        $q = ($cau.Status -eq 'Queried'); $win = [int]$cau.LookbackDays
+        $count = if ($q) { [int]$cau.IssuedInLookback } else { $null }
+        $ev = if ($q) { "$($cau.IssuedInLookback) cert(s) issued in $win days ($($cau.Issued30d) in 30d, $($cau.Issued90d) in 90d). Templates: $($cau.TopTemplates)" } else { "CA database not queried: $($cau.Reason)" }
+        $rows.Add((New-RoleUsageRow 'Certification Authority' (Get-RoleUsageVerdict $count $win) $ev 'CertificateAuthorityUsage' $cau.LastIssued $win $(if ($q) { 'Likely' } else { 'Unknown' })))
+    }
+
     # ---- DHCP: active scopes + lease counts (point-in-time; lease event history is a later phase) ----
     $dhcp = @(& $get 'DhcpServerSummary') | Select-Object -First 1
     if ($dhcp) {

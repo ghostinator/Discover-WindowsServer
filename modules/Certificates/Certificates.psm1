@@ -9,7 +9,7 @@ function Get-DiscoveryModuleMetadata {
         ModuleName='Certificates'; DisplayName='Certificates & PKI'; Category='Certificates'; Version='1.0.0'
         DefaultInFast=$true; DefaultInDeep=$true; RequiresAdmin=$false; RequiresDomainContext=$false
         RequiresRole=$null; EstimatedImpact='Low'; CanRunAsSystem=$true
-        ProducesDatasets=@('Certificates','CertificateBindings','CertificateAuthority')
+        ProducesDatasets=@('Certificates','CertificateBindings','CertificateAuthority','CertificateAuthorityUsage')
         ProducesRisks=$true; ProducesFollowUpQuestions=$false; SupportsDeepMode=$true; SupportsComplianceLens=$true
     }
 }
@@ -17,6 +17,26 @@ function Get-DiscoveryModuleMetadata {
 function Test-DiscoveryPrerequisites {
     param([object]$Context)
     [pscustomobject]@{ ModuleName='Certificates'; CanRun=$true; Status='Ready'; Reason=''; Limitations=@() }
+}
+
+# Pure: summarises `certutil -view -out "Request.SubmittedWhen,CertificateTemplate" csv` output
+# (issued requests only). Counts and template names only - never subjects or requesters.
+function ConvertTo-CaIssuanceSummary {
+    param([string[]]$Lines, [datetime]$Now = (Get-Date))
+    $dates = [System.Collections.Generic.List[datetime]]::new(); $tpl = @{}
+    foreach ($l in $Lines) {
+        if ($l -notmatch '^"([^"]*)","([^"]*)"') { continue }
+        $d = [datetime]::MinValue
+        if (-not [datetime]::TryParse($Matches[1], [ref]$d)) { continue }   # header row / unparsable
+        $dates.Add($d); $t = $Matches[2]; if (-not $t) { $t = '(none)' }; $tpl[$t] = 1 + [int]$tpl[$t]
+    }
+    [pscustomobject]@{
+        IssuedInLookback = $dates.Count
+        Issued30d  = @($dates | Where-Object { $_ -ge $Now.AddDays(-30) }).Count
+        Issued90d  = @($dates | Where-Object { $_ -ge $Now.AddDays(-90) }).Count
+        LastIssued = $(if ($dates.Count) { ($dates | Sort-Object -Descending | Select-Object -First 1).ToString('yyyy-MM-dd HH:mm') } else { '' })
+        TopTemplates = ((@($tpl.GetEnumerator() | Sort-Object Value -Descending | Select-Object -First 5 | ForEach-Object { '{0} ({1})' -f $_.Key, $_.Value })) -join '; ')
+    }
 }
 
 function Invoke-DiscoveryCollection {
@@ -84,7 +104,29 @@ function Invoke-DiscoveryCollection {
         }
     } catch { }
 
-    return ,@{ Certificates=@($certs); CertificateBindings=@($bindings); CertificateAuthority=@($ca) }
+    # CA usage: issued-certificate recency/volume from the CA database (read-only certutil -view).
+    $usage = [System.Collections.Generic.List[object]]::new()
+    if ($ca.Count -gt 0) {
+        $lookback = 365
+        $row = [ordered]@{ CAName=$ca[0].CAName; LookbackDays=$lookback; Status='Unavailable'; IssuedInLookback=$null; Issued30d=$null; Issued90d=$null; LastIssued=''; TopTemplates=''; Reason='' }
+        try {
+            if ($ca[0].ServiceStatus -ne 'Running') { $row.Reason = "CertSvc is $($ca[0].ServiceStatus); CA database not queried." }
+            else {
+                $since = (Get-Date).AddDays(-$lookback).ToString('d')   # certutil parses dates in the current culture
+                $r = Invoke-CommandLineSafe -FilePath 'certutil.exe' -Arguments @('-view','-restrict',('"Request.Disposition=20,Request.SubmittedWhen>={0}"' -f $since),'-out','"Request.SubmittedWhen,CertificateTemplate"','csv') -TimeoutSeconds 120
+                if ($r.TimedOut) { $row.Reason = 'certutil -view timed out (CA database too large for the module budget).' }
+                elseif (-not $r.Succeeded -and $r.StdOut -notmatch '^"') { $row.Reason = 'certutil -view failed (needs CA Auditor/Manager rights): ' + (($r.StdErr + ' ' + $r.StdOut).Trim() -replace '\s+',' ') }
+                else {
+                    $sum = ConvertTo-CaIssuanceSummary -Lines @($r.StdOut -split "`r?`n")
+                    $row.Status='Queried'; $row.IssuedInLookback=$sum.IssuedInLookback; $row.Issued30d=$sum.Issued30d; $row.Issued90d=$sum.Issued90d; $row.LastIssued=$sum.LastIssued; $row.TopTemplates=$sum.TopTemplates
+                }
+            }
+        } catch { $row.Reason = $_.Exception.Message }
+        if ($row.Status -ne 'Queried') { Add-Limitation -Context $Context -Module 'Certificates' -Message 'CA issuance history could not be read; whether this CA is actively issuing is unknown.' -Reason $row.Reason | Out-Null }
+        $usage.Add([pscustomobject]$row)
+    }
+
+    return ,@{ Certificates=@($certs); CertificateBindings=@($bindings); CertificateAuthority=@($ca); CertificateAuthorityUsage=@($usage) }
 }
 
 function ConvertTo-DiscoveryDatasets {
@@ -95,6 +137,7 @@ function ConvertTo-DiscoveryDatasets {
     Add-DataSet -Context $Context -Name 'Certificates' -Description 'Local machine certificates (no keys exported).' -Rows $certs -Visibility 'Internal' -SourceModule 'Certificates' | Out-Null
     Add-DataSet -Context $Context -Name 'CertificateBindings' -Description 'Certificate-to-service/site correlations.' -Rows $bindings -Visibility 'Internal' -SourceModule 'Certificates' | Out-Null
     Add-DataSet -Context $Context -Name 'CertificateAuthority' -Description 'Configured AD CS certification authority (registry config only).' -Rows @(if ($RawData.CertificateAuthority) { @($RawData.CertificateAuthority) } else { @() }) -Visibility 'Internal' -SourceModule 'Certificates' | Out-Null
+    Add-DataSet -Context $Context -Name 'CertificateAuthorityUsage' -Description 'CA issuance volume/recency from the CA database (counts and template names only).' -Rows @(if ($RawData.CertificateAuthorityUsage) { @($RawData.CertificateAuthorityUsage) } else { @() }) -Visibility 'Internal' -SourceModule 'Certificates' | Out-Null
 }
 
-Export-ModuleMember -Function 'Get-DiscoveryModuleMetadata','Test-DiscoveryPrerequisites','Invoke-DiscoveryCollection','ConvertTo-DiscoveryDatasets'
+Export-ModuleMember -Function 'Get-DiscoveryModuleMetadata','Test-DiscoveryPrerequisites','Invoke-DiscoveryCollection','ConvertTo-DiscoveryDatasets','ConvertTo-CaIssuanceSummary'

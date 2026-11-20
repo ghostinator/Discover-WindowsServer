@@ -61,6 +61,7 @@ Output                                 ->  CSV / JSON / workbook / HTML / Markdo
 | `NpsRadiusDiscovery` | NPS_RADIUS | *(any rows ⇒ NPS/RADIUS present)* |
 | `Certificates` | Certificates | `Subject`, `NotAfter`, `Thumbprint`, `ExpiringSoon`(bool), `HasPrivateKey`(bool) |
 | `CertificateAuthority` | Certificates | `CAName`, `CAType`, `CAServerName`, `ServiceStatus`, `PublicationUrls`, `UrlsReferenceThisServer`(bool) |
+| `CertificateAuthorityUsage` | Certificates | `CAName`, `Status` (Queried/Unavailable), `LookbackDays`(number), `IssuedInLookback`(number), `Issued30d`(number), `Issued90d`(number), `LastIssued`, `TopTemplates`, `Reason` |
 | `BackupDiscovery` | BackupDR | `Product`, `Evidence` *(absent/empty ⇒ "no backup detected")* |
 | `ConfigDependencyHints` | ConfigDependencyScan | `FilePath`, `IndicatorType`, `RedactedLine` *(absent ⇒ "scan not performed")* |
 | `VendorAgents` | VendorAgents | `AgentName`, `Category` |
