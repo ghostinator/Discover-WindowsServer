@@ -23,6 +23,7 @@
   },
   "synthesisModules": [
     "RiskEngine",
+    "RoleUsage",
     "DecommissionReadiness",
     "ScopeLanguage",
     "ClientInterviewPack",

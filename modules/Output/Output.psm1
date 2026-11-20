@@ -575,6 +575,7 @@ function Get-InternalReportSectionMap {
         'User Profiles'            = 'UserProfiles'
         # Migration-scoping sections. A value is a dataset name, or @{ Dataset; Filter } for a
         # filtered view of a large dataset (the full dataset is always in the CSV/JSON export).
+        'Role Usage'          = 'RoleUsage'
         'Decommission States'          = 'DecommissionStates'
         'Server Workload & Capacity'   = 'WorkloadProfile'
         'Application Stacks'           = 'AppStackSummary'

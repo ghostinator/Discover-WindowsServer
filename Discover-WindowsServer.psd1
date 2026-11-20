@@ -83,6 +83,8 @@
         'modules\ReportBuilder\ReportBuilder.psm1',
         'modules\RiskEngine\RiskEngine.psd1',
         'modules\RiskEngine\RiskEngine.psm1',
+        'modules\RoleUsage\RoleUsage.psd1',
+        'modules\RoleUsage\RoleUsage.psm1',
         'modules\RolesFeatures\RolesFeatures.psd1',
         'modules\RolesFeatures\RolesFeatures.psm1',
         'modules\SQL\SQL.psd1',

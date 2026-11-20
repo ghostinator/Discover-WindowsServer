@@ -246,6 +246,7 @@ function Write-InternalMarkdownReport {
     $sections = [ordered]@{
         'Migration complexity rubric'   = 'MigrationComplexity'
         'Decommission readiness'        = 'DecommissionReadiness'
+        'Role usage'           = 'RoleUsage'
         'Decommission states'           = 'DecommissionStates'
         'Scream test plan'              = 'ScreamTestPlan'
         'Server identity, resources and workload footprint' = 'WorkloadProfile'
