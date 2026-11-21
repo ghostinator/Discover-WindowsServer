@@ -73,7 +73,8 @@ function Invoke-DiscoveryCollection {
     }
 
     # ---- Domain controller: Kerberos TGT requests (4768) ----
-    if ((Test-RoleFeaturePresent -Context $Context -Pattern '(?i)^AD-Domain-Services$')) {
+    # The feature name alone misses a DC whose AD DS feature state is InstallPending, so also trust the DomainContext flag.
+    if ((Test-RoleFeaturePresent -Context $Context -Pattern '(?i)^AD-Domain-Services$') -or (Test-DatasetFieldTrue -Context $Context -Dataset 'DomainContext' -Field 'IsDomainController')) {
         $row = [ordered]@{ Status='Unavailable'; WindowDays=$days; TgtRequests=$null; LastTgt=''; CoverageDays=$null; Reason='' }
         try {
             $s = Read-EventUsage -LogName 'Security' -Ids 4768 -Days $days -Max 5000   # ponytail: capped at 5000; a capped count still means "busy"
