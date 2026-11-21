@@ -22,8 +22,8 @@
     "fileScanShareTimeoutSeconds": 180
   },
   "synthesisModules": [
-    "RiskEngine",
     "RoleUsage",
+    "RiskEngine",
     "DecommissionReadiness",
     "ScopeLanguage",
     "ClientInterviewPack",

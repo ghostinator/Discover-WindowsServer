@@ -4603,6 +4603,56 @@
         "Decommission",
         "ServerRefresh"
       ]
-    }
-  ]
+    },
+    {
+      "id": "RULE-USAGE-001",
+      "enabled": true,
+      "category": "Applications",
+      "severity": "Low",
+      "confidence": "Possible",
+      "title": "Installed role showed no activity in the evidence window",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "RoleUsage",
+        "field": "Verdict",
+        "value": "No activity in window"
+      },
+      "emitPerRow": true,
+      "evidenceField": "Role",
+      "evidenceTemplate": "{Role}: {Evidence}",
+      "whyItMattersForScoping": "The role is installed but no use was seen in the available logs. It may be a candidate to retire instead of migrate, but logs show use, never prove absence: a short window misses monthly or seasonal clients.",
+      "potentialProjectImpact": [
+        "Architecture Decision",
+        "Client Coordination"
+      ],
+      "suggestedValidationQuestion": "Is the {Role} role still needed, and can an observation window longer than the evidence above be agreed before it is dropped from scope?",
+      "sourceModule": "RoleUsage",
+      "sourceDataset": "RoleUsage",
+      "clientSafe": false
+    },
+    {
+      "id": "RULE-USAGE-002",
+      "enabled": true,
+      "category": "Applications",
+      "severity": "Info",
+      "confidence": "Likely",
+      "title": "Installed role is actively used",
+      "condition": {
+        "type": "anyRowFieldEquals",
+        "dataset": "RoleUsage",
+        "field": "Verdict",
+        "value": "Active"
+      },
+      "emitPerRow": true,
+      "evidenceField": "Role",
+      "evidenceTemplate": "{Role}: {Evidence}",
+      "whyItMattersForScoping": "Real activity was observed, so this role needs full migration planning and a cutover window.",
+      "potentialProjectImpact": [
+        "Cutover Complexity"
+      ],
+      "suggestedValidationQuestion": "Who are the consumers of the {Role} role, and when can they tolerate a cutover?",
+      "sourceModule": "RoleUsage",
+      "sourceDataset": "RoleUsage",
+      "clientSafe": false
+    }  ]
 }

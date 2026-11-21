@@ -770,7 +770,7 @@ function Invoke-Discovery {
     $modulesRoot = Join-Path $PSScriptRoot 'modules'
     $cfg = $Context.Config
     $collectorOrder = @()
-    $synthesisOrder = @('RiskEngine','RoleUsage','DecommissionReadiness','ScopeLanguage','ClientInterviewPack')
+    $synthesisOrder = @('RoleUsage','RiskEngine','DecommissionReadiness','ScopeLanguage','ClientInterviewPack')
     if ($cfg -and $cfg.Default) {
         if ($cfg.Default.collectorModuleOrder) { $collectorOrder = @($cfg.Default.collectorModuleOrder) }
         if ($cfg.Default.synthesisModules) { $synthesisOrder = @($cfg.Default.synthesisModules | Where-Object { $_ -ne 'EvidenceManifest' }) }
