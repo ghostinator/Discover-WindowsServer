@@ -12,7 +12,7 @@ function Get-DiscoveryModuleMetadata {
         ModuleName='IIS'; DisplayName='IIS / Web Server'; Category='Web'; Version='1.1.0'
         DefaultInFast=$true; DefaultInDeep=$true; RequiresAdmin=$false; RequiresDomainContext=$false
         RequiresRole='Web-Server'; EstimatedImpact='Low'; CanRunAsSystem=$true
-        ProducesDatasets=@('IisSites','IisBindings','IisAppPools','IisApplications','IisVirtualDirectories','IisAuthentication')
+        ProducesDatasets=@('IisSites','IisBindings','IisAppPools','IisApplications','IisVirtualDirectories','IisAuthentication','IisUsage')
         ProducesRisks=$true; ProducesFollowUpQuestions=$true; SupportsDeepMode=$true; SupportsComplianceLens=$true
     }
 }
@@ -185,7 +185,46 @@ function Invoke-DiscoveryCollection {
         } else { Add-Limitation -Context $Context -Module 'IIS' -Message 'No IIS management tooling available to enumerate sites.' | Out-Null }
     }
 
-    return ,@{ IisSites=@($sites); IisBindings=@($bindings); IisAppPools=@($pools); IisApplications=@($apps); IisVirtualDirectories=@($vdirs); IisAuthentication=@($auth) }
+    # Request activity from existing W3C logs (read-only; counts and dates only, no URLs or client IPs).
+    $usage = [System.Collections.Generic.List[object]]::new()
+    $days = [int]$Context.Parameters['EventLogDays']; if ($days -le 0) { $days = 14 }
+    foreach ($site in $sites) {
+        $row = [ordered]@{ Site=$site.Name; Status='Unavailable'; WindowDays=$days; LogFiles=$null; Requests=$null; LastRequest=''; CoverageDays=$null; Reason='' }
+        try {
+            $dir = Join-Path $env:SystemDrive 'inetpub\logs\LogFiles'
+            if ($useWA) { try { $cfg = [string](Get-Website -Name $site.Name -ErrorAction Stop).logFile.directory; if ($cfg) { $dir = [Environment]::ExpandEnvironmentVariables($cfg) } } catch { } }
+            $sd = Join-Path $dir ('W3SVC' + $site.Id)
+            if (-not (Test-Path -LiteralPath $sd)) { $row.Reason = 'No W3C log folder for this site (logging disabled, or logs moved).' }
+            else {
+                $files = @(Get-ChildItem -LiteralPath $sd -Filter '*.log' -ErrorAction Stop | ForEach-Object {
+                    $n = 0
+                    if ($_.LastWriteTime -ge (Get-Date).AddDays(-$days)) {
+                        if ($_.Length -gt 500MB) { $n = 1 }   # ponytail: too big to count lines inside the module budget; treated as "traffic present"
+                        else { foreach ($ln in [System.IO.File]::ReadLines($_.FullName)) { if ($ln.Length -gt 0 -and $ln[0] -ne '#') { $n++ } } }
+                    }
+                    [pscustomobject]@{ LastWriteTime=$_.LastWriteTime; Requests=$n } })
+                $sum = ConvertTo-IisLogSummary -Files $files -WindowDays $days
+                $row.Status='Queried'; $row.LogFiles=$sum.LogFiles; $row.Requests=$sum.Requests; $row.LastRequest=$sum.LastRequest; $row.CoverageDays=$sum.CoverageDays
+            }
+        } catch { $row.Reason = $_.Exception.Message }
+        if ($row.Status -ne 'Queried') { Add-Limitation -Context $Context -Module 'IIS' -Message ("IIS request activity for site '{0}' could not be read; whether it receives traffic is unknown." -f $site.Name) -Reason $row.Reason | Out-Null }
+        $usage.Add([pscustomobject]$row)
+    }
+    return ,@{ IisSites=@($sites); IisBindings=@($bindings); IisAppPools=@($pools); IisApplications=@($apps); IisVirtualDirectories=@($vdirs); IisAuthentication=@($auth); IisUsage=@($usage) }
+}
+
+# Pure: Files are @{LastWriteTime; Requests}. LastRequest = newest log that actually held requests.
+# CoverageDays = age of the oldest retained log (how far back the evidence reaches).
+function ConvertTo-IisLogSummary {
+    param($Files, [int]$WindowDays = 14, [datetime]$Now = (Get-Date))
+    $all = @($Files); $inWin = @($all | Where-Object { $_.LastWriteTime -ge $Now.AddDays(-$WindowDays) })
+    $withReq = @($inWin | Where-Object { $_.Requests -gt 0 } | Sort-Object LastWriteTime -Descending)
+    [pscustomobject]@{
+        LogFiles = $inWin.Count
+        Requests = [int](($inWin | Measure-Object Requests -Sum).Sum)
+        LastRequest = $(if ($withReq.Count) { $withReq[0].LastWriteTime.ToString('yyyy-MM-dd HH:mm') } else { '' })
+        CoverageDays = $(if ($all.Count) { [math]::Round(($Now - ($all | Sort-Object LastWriteTime | Select-Object -First 1).LastWriteTime).TotalDays, 1) } else { 0 })
+    }
 }
 
 # True when an app-pool identity looks like DOMAIN\user rather than a built-in account.
@@ -201,6 +240,7 @@ function ConvertTo-DiscoveryDatasets {
     Add-DataSet -Context $Context -Name 'IisApplications'       -Description 'IIS applications.'         -Rows (& $get 'IisApplications')       -Visibility 'Internal' -SourceModule 'IIS' | Out-Null
     Add-DataSet -Context $Context -Name 'IisVirtualDirectories' -Description 'IIS virtual directories.'  -Rows (& $get 'IisVirtualDirectories') -Visibility 'Internal' -SourceModule 'IIS' | Out-Null
     Add-DataSet -Context $Context -Name 'IisAuthentication'     -Description 'Per-site authentication modes (anonymous/windows/basic/digest).' -Rows (& $get 'IisAuthentication') -Visibility 'Internal' -SourceModule 'IIS' | Out-Null
+    Add-DataSet -Context $Context -Name 'IisUsage'              -Description 'Per-site request counts from existing W3C logs (counts and dates only).' -Rows (& $get 'IisUsage') -Visibility 'Internal' -SourceModule 'IIS' | Out-Null
 }
 
 function Get-DiscoveryFollowUpQuestions {
@@ -208,4 +248,4 @@ function Get-DiscoveryFollowUpQuestions {
     try { if ($Context.DataSets.Contains('IisSites') -and @($Context.DataSets['IisSites'].Rows).Count -gt 0) { Add-FollowUpQuestion -Context $Context -Category 'Applications' -Module 'IIS' -Audience 'Both' -Question 'Who owns each IIS-hosted web application, and are its certificate, host-header, and connection-string dependencies documented?' | Out-Null } } catch { }
 }
 
-Export-ModuleMember -Function 'Get-DiscoveryModuleMetadata','Test-DiscoveryPrerequisites','Invoke-DiscoveryCollection','ConvertTo-DiscoveryDatasets','Get-DiscoveryFollowUpQuestions','Test-IisPresent','Get-IisAppCmdPath','Test-IisIdentityIsDomainAccount','ConvertFrom-IisBindingInformation','Get-IisPathAssessment'
+Export-ModuleMember -Function 'Get-DiscoveryModuleMetadata','Test-DiscoveryPrerequisites','Invoke-DiscoveryCollection','ConvertTo-DiscoveryDatasets','Get-DiscoveryFollowUpQuestions','Test-IisPresent','Get-IisAppCmdPath','Test-IisIdentityIsDomainAccount','ConvertFrom-IisBindingInformation','Get-IisPathAssessment','ConvertTo-IisLogSummary'

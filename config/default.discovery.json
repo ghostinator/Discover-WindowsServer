@@ -52,6 +52,7 @@
     "RDS",
     "NPS_RADIUS",
     "Certificates",
+    "RoleUsageEvidence",
     "BackupDR",
     "PrintServer",
     "ConfigDependencyScan",

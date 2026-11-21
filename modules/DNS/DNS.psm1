@@ -10,7 +10,7 @@ function Get-DiscoveryModuleMetadata {
         ModuleName='DNS'; DisplayName='DNS Server'; Category='Identity'; Version='1.0.0'
         DefaultInFast=$true; DefaultInDeep=$true; RequiresAdmin=$false; RequiresDomainContext=$false
         RequiresRole='DNS'; EstimatedImpact='Low'; CanRunAsSystem=$true
-        ProducesDatasets=@('DnsServerSettings','DnsZones','DnsRecordsReferencingThisServer')
+        ProducesDatasets=@('DnsServerSettings','DnsZones','DnsRecordsReferencingThisServer','DnsUsage')
         ProducesRisks=$true; ProducesFollowUpQuestions=$false; SupportsDeepMode=$true; SupportsComplianceLens=$false
     }
 }
@@ -49,7 +49,27 @@ function Invoke-DiscoveryCollection {
 
     $selfRefs = Get-DnsRecordsReferencingThisServer -Context $Context -Zones $zones
 
-    return ,@{ DnsServerSettings=@($settings); DnsZones=@($zones); DnsRecordsReferencingThisServer=@($selfRefs) }
+    # Query volume from the server's own counters (no logging needed). Counters reset when the DNS service restarts,
+    # so CoverageDays is the time since DNS service start, not a fixed lookback.
+    $usage = [System.Collections.Generic.List[object]]::new()
+    $row = [ordered]@{ Status='Unavailable'; TotalQueries=$null; ServerStartTime=''; CoverageDays=$null; QueriesPerDay=$null; Reason='' }
+    try {
+        $st = Get-DnsServerStatistics -ErrorAction Stop
+        $start = [datetime]$st.TimeStatistics.ServerStartTime
+        $q = [int64]$st.Query2Statistics.TotalQueries
+        $sum = Get-DnsQueryRate -TotalQueries $q -StartTime $start
+        $row.Status='Queried'; $row.TotalQueries=$q; $row.ServerStartTime=$start.ToString('yyyy-MM-dd HH:mm'); $row.CoverageDays=$sum.CoverageDays; $row.QueriesPerDay=$sum.QueriesPerDay
+    } catch { $row.Reason = $_.Exception.Message; Add-Limitation -Context $Context -Module 'DNS' -Message 'DNS query statistics could not be read; whether the server answers queries is unknown.' -Reason $row.Reason | Out-Null }
+    $usage.Add([pscustomobject]$row)
+
+    return ,@{ DnsServerSettings=@($settings); DnsZones=@($zones); DnsRecordsReferencingThisServer=@($selfRefs); DnsUsage=@($usage) }
+}
+
+# Pure: queries/day since the counters started (floor of 1 hour so a fresh restart does not divide by ~0).
+function Get-DnsQueryRate {
+    param([int64]$TotalQueries, [datetime]$StartTime, [datetime]$Now = (Get-Date))
+    $days = [math]::Max(($Now - $StartTime).TotalDays, 1/24)
+    [pscustomobject]@{ CoverageDays = [math]::Round(($Now - $StartTime).TotalDays, 1); QueriesPerDay = [math]::Round($TotalQueries / $days, 1) }
 }
 
 function Get-DnsRecordsReferencingThisServer {
@@ -109,8 +129,9 @@ function ConvertTo-DiscoveryDatasets {
     if (-not $RawData) { $RawData = @{} }
     $get = { param($k) if ($RawData[$k]) { @($RawData[$k]) } else { @() } }
     Add-DataSet -Context $Context -Name 'DnsServerSettings' -Description 'DNS server settings (forwarders).' -Rows (& $get 'DnsServerSettings') -Visibility 'Internal' -SourceModule 'DNS' | Out-Null
+    Add-DataSet -Context $Context -Name 'DnsUsage'          -Description 'DNS query volume from server counters since service start.' -Rows (& $get 'DnsUsage') -Visibility 'Internal' -SourceModule 'DNS' | Out-Null
     Add-DataSet -Context $Context -Name 'DnsZones'          -Description 'DNS zones summary.'                -Rows (& $get 'DnsZones')          -Visibility 'Internal' -SourceModule 'DNS' | Out-Null
     Add-DataSet -Context $Context -Name 'DnsRecordsReferencingThisServer' -Description 'A/CNAME records (forward zones) whose target is this server''s own hostname or IP.' -Rows (& $get 'DnsRecordsReferencingThisServer') -Visibility 'Internal' -SourceModule 'DNS' | Out-Null
 }
 
-Export-ModuleMember -Function 'Get-DiscoveryModuleMetadata','Test-DiscoveryPrerequisites','Invoke-DiscoveryCollection','ConvertTo-DiscoveryDatasets','Test-DnsPresent','Get-DnsRecordsReferencingThisServer'
+Export-ModuleMember -Function 'Get-DiscoveryModuleMetadata','Test-DiscoveryPrerequisites','Invoke-DiscoveryCollection','ConvertTo-DiscoveryDatasets','Test-DnsPresent','Get-DnsRecordsReferencingThisServer','Get-DnsQueryRate'

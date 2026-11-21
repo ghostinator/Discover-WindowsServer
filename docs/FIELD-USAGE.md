@@ -91,6 +91,12 @@ Output                                 ->  CSV / JSON / workbook / HTML / Markdo
 | `GpoServerReferences` | ActiveDirectory | `GpoName`, `GpoGuid`, `GpoLinked`(bool), `Scope`, `SettingType`, `Item`, `Reference`, `ReferencedHost`, `ReferencesThisServer`(bool) |
 | `DhcpServerSummary` | DHCP | `HostsActiveDhcp`(bool), `HasFailover`(bool), `ActiveScopeCount`(number) |
 | `DhcpLeaseActivity` | DHCP | `Status` (Queried/Unavailable), `AuditLogEnabled`(bool), `NewLeases`(number), `Renewals`(number), `Releases`(number), `LastLeaseEvent`, `CoverageDays`(number), `Reason` |
+| `IisUsage` | IIS | `Site`, `Status` (Queried/Unavailable), `WindowDays`(number), `LogFiles`(number), `Requests`(number), `LastRequest`, `CoverageDays`(number), `Reason` |
+| `DnsUsage` | DNS | `Status`, `TotalQueries`(number), `ServerStartTime`, `CoverageDays`(number), `QueriesPerDay`(number), `Reason` |
+| `NpsUsage` | NPS_RADIUS | `Status`, `WindowDays`(number), `Granted`(number), `Denied`(number), `AuditEnabled`(bool), `LastAuth`, `CoverageDays`(number), `Reason` |
+| `SqlUsage` | RoleUsageEvidence | `Status`, `RunningInstances`(number), `RemoteClients`(number), `ObservedAt`, `Reason` |
+| `RdsUsage` | RoleUsageEvidence | `Status`, `WindowDays`(number), `SessionEvents`(number), `LastSession`, `CoverageDays`(number), `Reason` |
+| `AdUsage` | RoleUsageEvidence | `Status`, `WindowDays`(number), `TgtRequests`(number), `LastTgt`, `CoverageDays`(number), `Reason` |
 | `DnsZones` | DNS | `ZoneName`, `IsConditionalForwarder`(bool), `MasterServers`, `RequiresStaticUpdates`(bool) |
 | `HyperVUnattachedFiles` | HyperV | `Path`, `FileType`, `SizeGB` |
 | `HypervisorInventorySummary` | HypervisorInventory | `RunningVMs`(number), `PoweredOffVMs`(number), `CountConflicts`(number), `CountConflictDetail` |

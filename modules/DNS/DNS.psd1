@@ -6,7 +6,7 @@
     CompanyName       = 'Brandon Cook'
     Description       = 'DNS collector module for the Windows Server Discovery Toolkit.'
     PowerShellVersion = '5.1'
-    FunctionsToExport = @('ConvertTo-DiscoveryDatasets','Get-DiscoveryModuleMetadata','Get-DnsRecordsReferencingThisServer','Invoke-DiscoveryCollection','Test-DiscoveryPrerequisites','Test-DnsPresent')
+    FunctionsToExport = @('ConvertTo-DiscoveryDatasets','Get-DnsQueryRate','Get-DiscoveryModuleMetadata','Get-DnsRecordsReferencingThisServer','Invoke-DiscoveryCollection','Test-DiscoveryPrerequisites','Test-DnsPresent')
     CmdletsToExport   = @()
     VariablesToExport = @()
     AliasesToExport   = @()

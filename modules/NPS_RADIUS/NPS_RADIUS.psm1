@@ -8,7 +8,7 @@ function Get-DiscoveryModuleMetadata {
         ModuleName='NPS_RADIUS'; DisplayName='NPS / RADIUS / VPN / MFA'; Category='Security'; Version='1.0.0'
         DefaultInFast=$true; DefaultInDeep=$true; RequiresAdmin=$true; RequiresDomainContext=$false
         RequiresRole='NPAS'; EstimatedImpact='Low'; CanRunAsSystem=$true
-        ProducesDatasets=@('NpsRadiusDiscovery')
+        ProducesDatasets=@('NpsRadiusDiscovery','NpsUsage')
         ProducesRisks=$true; ProducesFollowUpQuestions=$true; SupportsDeepMode=$true; SupportsComplianceLens=$true
     }
 }
@@ -57,13 +57,34 @@ function Invoke-DiscoveryCollection {
     } catch { Add-Limitation -Context $Context -Module 'NPS_RADIUS' -Message 'NPS config query failed.' -Reason $_.Exception.Message | Out-Null }
     # Azure MFA NPS extension indicator
     try { if (Test-RegistryPathSafe 'HKLM:\SOFTWARE\Microsoft\AzureMfa') { $rows.Add([pscustomobject]@{ Item='Azure MFA NPS Extension'; Type='MFA'; Detail='Registry indicator present' }) } } catch { }
-    return ,@{ NpsRadiusDiscovery=@($rows) }
+    # Authentication activity: Security log 6272 (granted) / 6273 (denied). Counts and dates only - no user or device names.
+    $usage = [System.Collections.Generic.List[object]]::new()
+    $days = [int]$Context.Parameters['EventLogDays']; if ($days -le 0) { $days = 14 }
+    $row = [ordered]@{ Status='Unavailable'; WindowDays=$days; Granted=$null; Denied=$null; AuditEnabled=$null; LastAuth=''; CoverageDays=$null; Reason='' }
+    try {
+        $ev = @()
+        try { $ev = @(Get-WinEvent -FilterHashtable @{ LogName='Security'; Id=6272,6273; StartTime=(Get-Date).AddDays(-$days) } -MaxEvents 20000 -ErrorAction Stop) }
+        catch { if ($_.FullyQualifiedErrorId -notlike 'NoMatchingEventsFound*') { throw } }
+        $oldest = (Get-WinEvent -LogName Security -Oldest -MaxEvents 1 -ErrorAction Stop).TimeCreated   # how far back the Security log really reaches
+        $row.Status='Queried'
+        $row.Granted = @($ev | Where-Object { $_.Id -eq 6272 }).Count; $row.Denied = @($ev | Where-Object { $_.Id -eq 6273 }).Count
+        if ($ev.Count) { $row.LastAuth = ($ev | Sort-Object TimeCreated -Descending | Select-Object -First 1).TimeCreated.ToString('yyyy-MM-dd HH:mm') }
+        $row.CoverageDays = [math]::Round([math]::Min($days, ((Get-Date) - $oldest).TotalDays), 1)
+        # Is "Network Policy Server" auditing on? (subcategory GUID, so it works on any language). Without it the log is silent, not idle.
+        try {
+            $au = @(& auditpol.exe /get /subcategory:"{0CCE9243-69AE-11D9-BED3-505054503030}" /r 2>$null | ConvertFrom-Csv)
+            if ($au.Count -gt 0) { $row.AuditEnabled = [bool]([string]$au[0].'Inclusion Setting' -notmatch '(?i)no auditing' -and [string]$au[0].'Inclusion Setting') }
+        } catch { }
+    } catch { $row.Reason = $_.Exception.Message; Add-Limitation -Context $Context -Module 'NPS_RADIUS' -Message 'NPS authentication events could not be read from the Security log; whether RADIUS clients use this server is unknown.' -Reason $row.Reason | Out-Null }
+    $usage.Add([pscustomobject]$row)
+    return ,@{ NpsRadiusDiscovery=@($rows); NpsUsage=@($usage) }
 }
 
 function ConvertTo-DiscoveryDatasets {
     param([object]$Context, $RawData)
     $rows = @(if ($RawData -and $RawData.NpsRadiusDiscovery) { @($RawData.NpsRadiusDiscovery) } else { @() })
     Add-DataSet -Context $Context -Name 'NpsRadiusDiscovery' -Description 'NPS/RADIUS indicators (no shared secrets).' -Rows $rows -Visibility 'Internal' -SourceModule 'NPS_RADIUS' | Out-Null
+    Add-DataSet -Context $Context -Name 'NpsUsage' -Description 'NPS authentication counts from the Security log (counts and dates only).' -Rows @(if ($RawData -and $RawData.NpsUsage) { @($RawData.NpsUsage) } else { @() }) -Visibility 'Internal' -SourceModule 'NPS_RADIUS' | Out-Null
 }
 
 function Get-DiscoveryFollowUpQuestions {
