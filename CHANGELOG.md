@@ -2,6 +2,18 @@
 
 Release notes. The detailed defect-by-defect history lives in [HISTORY.md](HISTORY.md).
 
+## 1.2.0 - role usage detection
+
+Answers "is this installed role actually used?" from existing events, logs and counters. Read-only;
+logs show use and never prove absence, so there is no "unused" verdict: `Active`, `Light/Occasional`,
+`No activity in window`, `Unknown`.
+
+- **RoleUsage** synthesis module: one row per installed role (Evidence, source, last activity, window, confidence), plus a client-safe `RoleUsageSummary`. Rules `RULE-USAGE-001/002`.
+- **Evidence added:** ADCS issued certificates (365 days), DHCP lease audit log, IIS site logs (also used for WSUS), DNS query counters, NPS 6272/6273 (checks auditing is on), SQL remote clients, RDS session events, DC Kerberos TGT (4768), Hyper-V VM state, shares and SMTP from existing data.
+- **Client report:** "How much each installed role appears to be used" table in plain language.
+- **Fixes found live:** IIS logs locked by the running site are now read with shared access; a DC whose AD DS feature is InstallPending is still detected.
+- **Limits:** Print is `Unknown` where the PrintService operational log is disabled (it is off by default; the toolkit never enables logging). SQL and file shares are point-in-time only, so a quiet moment gives `Unknown`, not "no activity".
+
 ## 1.1.0 - migration scoping
 
 Read-only discovery for MSP migration, consolidation and decommission projects, built into the
