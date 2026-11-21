@@ -200,7 +200,15 @@ function Invoke-DiscoveryCollection {
                     $n = 0
                     if ($_.LastWriteTime -ge (Get-Date).AddDays(-$days)) {
                         if ($_.Length -gt 500MB) { $n = 1 }   # ponytail: too big to count lines inside the module budget; treated as "traffic present"
-                        else { foreach ($ln in [System.IO.File]::ReadLines($_.FullName)) { if ($ln.Length -gt 0 -and $ln[0] -ne '#') { $n++ } } }
+                        else {
+                            # IIS holds today's log open for writing: share ReadWrite|Delete or the newest (most relevant) file cannot be read.
+                            $fs = $null; $sr = $null
+                            try {
+                                $fs = New-Object System.IO.FileStream($_.FullName, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete))
+                                $sr = New-Object System.IO.StreamReader($fs)
+                                while ($null -ne ($ln = $sr.ReadLine())) { if ($ln.Length -gt 0 -and $ln[0] -ne '#') { $n++ } }
+                            } finally { if ($sr) { $sr.Dispose() } elseif ($fs) { $fs.Dispose() } }
+                        }
                     }
                     [pscustomobject]@{ LastWriteTime=$_.LastWriteTime; Requests=$n } })
                 $sum = ConvertTo-IisLogSummary -Files $files -WindowDays $days

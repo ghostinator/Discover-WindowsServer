@@ -78,6 +78,7 @@ Output                                 ->  CSV / JSON / workbook / HTML / Markdo
 | `SmtpRelayClients` | ExchangeSmtp | `ClientIp`, `ClientIdentity`, `ConnectorIds`, `MessagesInTracking`(number), `AcceptedInProtocolLog`(number), `Classification`, `Confidence` |
 | `SmtpRelayAssessment` | ExchangeSmtp | `Status`, `Conditions`, `Recommendation`, `UsageProvenUnused`(bool, always false), `EvidenceCoverageDays`(number) |
 | `RoleUsage` | RoleUsage | `Role`, `Verdict` (Active / Light/Occasional / No activity in window / Unknown), `Evidence`, `EvidenceSource`, `LastActivity`, `WindowDays`(number), `Confidence` |
+| `RoleUsageSummary` | RoleUsage | `Role`, `Verdict`, `WindowDays`(number) - client-safe subset of RoleUsage |
 | `SmtpConnections` | ExchangeSmtp | `Direction`, `RemoteAddress`, `RemotePort`, `Process` |
 | `AppStackEvidence` | ApplicationStacks | `EvidenceId`, `Stack`, `Component`, `Role`, `Version`, `Confidence`, `SourceDataset`, `SourceField` |
 | `AppStackSummary` | ApplicationStacks | `Stack`, `HostRole`, `ServerVersions`, `ClientVersions`, `LocalServerClientVersionsDiffer`(bool), `RdsHostWithClient`(bool), `EvidenceIds`, `Confidence` |

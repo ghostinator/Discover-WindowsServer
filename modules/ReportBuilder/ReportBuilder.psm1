@@ -422,6 +422,16 @@ function Get-RbClientModel {
         $states = @($stateRows | Where-Object { $_.Applies } | ForEach-Object { [pscustomobject]@{ 'Before this server can be retired' = [string]$_.State; 'Next step' = [string]$_.NextStep } })
     }
 
+    # Role usage: plain-language reading only. Wording never says "unused" - logs show use, never prove absence.
+    $roleUsage = @()
+    if (Test-RbClientSafeDataset -Context $Context -Name 'RoleUsageSummary') {
+        $usageRows = Get-RbRows -Context $Context -Name 'RoleUsageSummary'
+        $roleUsage = @($usageRows | ForEach-Object {
+            $reading = switch ([string]$_.Verdict) { 'Active' { 'In use' } 'Light/Occasional' { 'Lightly used' } 'No activity in window' { 'No use seen in the records we could read' } default { 'Could not be determined' } }
+            [pscustomobject]@{ 'Installed role' = [string]$_.Role; 'What we saw' = $reading; 'Period checked' = $(if ([int]$_.WindowDays -gt 0) { "$([int]$_.WindowDays) days" } else { 'Moment of the scan' }) }
+        })
+    }
+
     $backupKnown = (Test-RbClientSafeDataset -Context $Context -Name 'BackupDiscovery')
     $backups = @()
     if ($backupKnown) {
@@ -472,6 +482,7 @@ function Get-RbClientModel {
         Applications   = $apps
         Shares         = $shares
         Printers       = $printers
+        RoleUsage      = $roleUsage
         Vendors        = $vendors
         HybridIdentity = $hybrid
         AppStacks      = $stacks
@@ -544,6 +555,11 @@ function Write-ClientHtmlReport {
     if (@($Model.Printers).Count -gt 0) {
         [void]$sb.AppendLine('<h3>Shared printers</h3>')
         [void]$sb.AppendLine((ConvertTo-HtmlTable -Rows $Model.Printers))
+    }
+    if (@($Model.RoleUsage).Count -gt 0) {
+        [void]$sb.AppendLine('<h3>How much each installed role appears to be used</h3>')
+        [void]$sb.AppendLine('<p class="muted">Based on the records available on the server. A quiet period does not prove a role is unneeded: occasional or seasonal use can fall outside what was checked.</p>')
+        [void]$sb.AppendLine((ConvertTo-HtmlTable -Rows $Model.RoleUsage))
     }
     if (@($Model.AppStacks).Count -gt 0) {
         [void]$sb.AppendLine('<h3>Line-of-business application components</h3>')
@@ -655,6 +671,7 @@ function Write-ClientMarkdownReport {
         'Business applications we recognised' = $Model.Applications
         'Shared folders'                      = $Model.Shares
         'Shared printers'                     = $Model.Printers
+        'How much each installed role appears to be used (based on available records; a quiet period does not prove a role is unneeded)' = $Model.RoleUsage
         'Line-of-business application components' = $Model.AppStacks
         'Connections to Microsoft 365 / Azure'= $Model.HybridIdentity
         'Third-party products installed'      = $Model.Vendors

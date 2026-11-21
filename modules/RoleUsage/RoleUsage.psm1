@@ -18,7 +18,7 @@ function Get-DiscoveryModuleMetadata {
         RequiresRole              = $null
         EstimatedImpact           = 'Minimal'
         CanRunAsSystem            = $true
-        ProducesDatasets          = @('RoleUsage')
+        ProducesDatasets          = @('RoleUsage','RoleUsageSummary')
         ProducesRisks             = $false
         ProducesFollowUpQuestions = $false
         SupportsDeepMode          = $true
@@ -173,14 +173,17 @@ function Build-RoleUsage {
     if ($smtp) {
         $v = switch -Wildcard ([string]$smtp.Status) {
             'Confirmed active*' { 'Active' }
-            'Possible*'         { 'Active' }
+            'Possible*'         { 'Unknown' }   # an unidentified client is not confirmed use; the Evidence column keeps the status
             'No SMTP usage*'    { 'No activity in window' }
             default             { 'Unknown' }
         }
-        $rows.Add((New-RoleUsageRow 'SMTP Relay' $v ([string]$smtp.Status) 'SmtpRelayAssessment' '' ([int]$smtp.LookbackDays) $(if ($v -eq 'Unknown') { 'Unknown' } else { 'Likely' })))
+        $rows.Add((New-RoleUsageRow 'SMTP Relay' $v ([string]$smtp.Status) 'SmtpRelayAssessment' '' ([int]$smtp.LookbackDays) $(if ($v -eq 'Unknown') { 'Unknown' } elseif ([string]$smtp.Status -like 'Possible*') { 'Possible' } else { 'Likely' })))
     }
 
     Add-DataSet -Context $Context -Name 'RoleUsage' -Description 'Per-role usage evidence (Active / No activity in window / Unknown). Activity can show use, never prove absence.' -Rows @($rows) -Visibility 'Internal' -SourceModule 'RoleUsage' | Out-Null
+    # Client-safe view: role + plain-language reading + window only. No counts, templates, or evidence text.
+    $summary = @($rows | ForEach-Object { [pscustomobject]@{ Role=$_.Role; Verdict=$_.Verdict; WindowDays=$_.WindowDays } })
+    Add-DataSet -Context $Context -Name 'RoleUsageSummary' -Description 'Client-safe per-role usage reading (role, verdict, window).' -Rows $summary -Visibility 'Both' -SourceModule 'RoleUsage' | Out-Null
 }
 function Invoke-DiscoverySynthesis {
     param([object]$Context)
