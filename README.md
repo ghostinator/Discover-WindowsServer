@@ -131,6 +131,23 @@ likely server functions. The sidebar jumps to findings by severity, to the depen
 or to any dataset (decommission readiness, scream-test plan, migration complexity and more).
 This report uses the default "Your Company" brand; set your own on the GUI's Branding tab.*
 
+### Is an installed role actually used?
+
+Installed does not mean in use. For each role it finds, the toolkit reads the evidence already on the
+server (certificates issued, DHCP leases, web and WSUS requests, DNS queries, RADIUS and Kerberos
+events, SQL and RDS sessions, running VMs) and reports `Active`, `Light/Occasional`,
+`No activity in window` or `Unknown`, with the evidence, the window and a confidence. Logs show use
+and never prove absence, so there is no "unused" verdict, and logging is never switched on for you.
+That makes it quick to see which roles need real migration work and which need a question to the client.
+
+<img src="docs/images/report-role-usage.png" width="900" alt="Internal dashboard report on the Role Usage page: a table with role, verdict, evidence, evidence source, last activity, window and confidence for Print, Certification Authority, IIS, DNS, NPS, SQL and RDS">
+
+*The internal report's Role Usage page (lab domain controller, Fast scan).*
+
+<img src="docs/images/report-role-usage-client.png" width="760" alt="Client report table titled How much each installed role appears to be used, with plain-language results such as In use, Lightly used and Could not be determined, and the period checked">
+
+*The client report shows the same result in plain language, with no raw evidence.*
+
 <!-- SCREENSHOT TODO (suggested): docs/images/report-findings.png - the same dashboard on
 "High severity", one finding expanded to show its severity, confidence, evidence and
 recommendation. Lab server or demo data only. -->
